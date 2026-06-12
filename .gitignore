@@ -1,0 +1,9 @@
+# Docker 持久化数据（数据库 + AI模型 + 上传文件）
+dify-1.13.3/docker/volumes/
+
+# Python 运行时生成
+__pycache__/
+*.pyc
+
+# Docker 环境变量（含 API Key 和密码）
+dify-1.13.3/docker/.env

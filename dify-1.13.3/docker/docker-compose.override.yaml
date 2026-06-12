@@ -1,0 +1,40 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: always
+    volumes:
+      - ./volumes/ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_NUM_PARALLEL=10
+    networks:
+      - default
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  bridge:
+    image: dify-bridge:1.0
+    restart: always
+    working_dir: /app
+    command: python app.py
+    volumes:
+      - ./bridge:/app
+    ports:
+      - "8088:8088"
+    environment:
+      - DIFY_API_URL=http://api:5001/v1
+      - DIFY_API_KEY=app-br8clENzUEf5gHAFNCjNjhFv
+      - DIFY_CLASSIFY_API_KEY=app-BI5o7ZsGgeQLTVXl8SXvkSMt
+      - BRIDGE_PORT=8088
+    networks:
+      - default
+    depends_on:
+      - api

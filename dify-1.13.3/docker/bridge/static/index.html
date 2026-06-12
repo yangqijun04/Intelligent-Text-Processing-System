@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全离线智能文本处理系统</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%235F479A'/><text x='16' y='22' text-anchor='middle' font-family='sans-serif' font-weight='bold' font-size='16' fill='white'>AI</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/lucide.min.js"></script>
+<script src="/marked.min.js"></script>
+
+<style>
+:root {
+  --primary: hsl(257 48% 54%);
+  --primary-fg: hsl(0 0% 100%);
+  --bg: hsl(0 0% 100%);
+  --fg: hsl(210 12% 10%);
+  --card: hsl(0 0% 100%);
+  --card-fg: hsl(210 12% 10%);
+  --border: hsl(215 32% 91%);
+  --input: hsl(215 32% 91%);
+  --muted: hsl(0 0% 96%);
+  --muted-fg: hsl(215 16% 47%);
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-fg: hsl(210 12% 10%);
+  --sidebar-accent: hsl(257 48% 54% / 0.06);
+  --destructive: hsl(0 84% 60%);
+  --destructive-fg: hsl(0 0% 100%);
+  --success: hsl(152 76% 40%);
+  --warning: hsl(38 92% 50%);
+  --radius: 0.75rem;
+  --radius-sm: 0.5rem;
+  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --font-body: 'Inter', 'Space Grotesk', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  height: 100vh;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-y: auto;
+}
+.sidebar-brand {
+  padding: 20px 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sidebar-brand svg { flex-shrink: 0; }
+.sidebar-brand h1 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  line-height: 1.3;
+}
+.sidebar-brand span {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted-fg);
+  display: block;
+}
+.sidebar-nav { flex: 1; padding: 8px 12px; }
+.sidebar-group { margin-bottom: 20px; }
+.sidebar-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-fg);
+  padding: 6px 8px 8px;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sidebar-fg);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+.sidebar-item:hover { background: var(--sidebar-accent); color: var(--primary); }
+.sidebar-item.active {
+  background: hsl(257 48% 54% / 0.1);
+  color: var(--primary);
+  border-color: hsl(257 48% 54% / 0.2);
+  font-weight: 600;
+}
+.sidebar-item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.7; }
+.sidebar-item.active svg { opacity: 1; }
+.sidebar-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted-fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+/* ── Page Header ── */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.page-header-icon {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-sm);
+  background: hsl(257 48% 54% / 0.1);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--primary);
+}
+.page-header h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.page-header p { font-size: 13px; color: var(--muted-fg); }
+
+/* ── Cards ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+.card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  font-size: 14px; font-weight: 600;
+}
+.card-body { padding: 20px; }
+.card-body.no-padding { padding: 0; }
+
+/* ── Two Column Grid ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  padding: 9px 16px;
+  font-family: var(--font-body);
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: var(--primary-fg); }
+.btn-primary:hover:not(:disabled) { opacity: 0.9; }
+.btn-outline { background: var(--bg); border-color: var(--border); color: var(--fg); }
+.btn-outline:hover:not(:disabled) { background: var(--muted); }
+.btn-ghost { background: transparent; color: var(--fg); }
+.btn-ghost:hover:not(:disabled) { background: var(--muted); }
+.btn-destructive { background: var(--destructive); color: var(--destructive-fg); }
+.btn-destructive:hover:not(:disabled) { opacity: 0.9; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-lg { padding: 12px 24px; font-size: 15px; }
+.btn-block { width: 100%; }
+.btn-icon { padding: 8px; min-width: 0; }
+
+/* ── Inputs ── */
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--input);
+  background: var(--bg);
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px hsl(257 48% 54% / 0.1); }
+.input::placeholder { color: var(--muted-fg); }
+textarea.input {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.6;
+}
+select.input { cursor: pointer; }
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-primary { background: hsl(257 48% 54% / 0.1); color: var(--primary); }
+.badge-success { background: hsl(152 76% 40% / 0.1); color: var(--success); }
+.badge-warning { background: hsl(38 92% 50% / 0.1); color: var(--warning); }
+.badge-destructive { background: hsl(0 84% 60% / 0.1); color: var(--destructive); }
+.badge-muted { background: var(--muted); color: var(--muted-fg); }
+
+/* ── Switch ── */
+.switch { position: relative; width: 40px; height: 22px; display: inline-block; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch-slider {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: hsl(215 16% 87%); border-radius: 22px; transition: 0.2s;
+}
+.switch-slider::before {
+  content: ""; position: absolute;
+  height: 16px; width: 16px; left: 3px; bottom: 3px;
+  background: white; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.switch input:checked + .switch-slider { background: var(--primary); }
+.switch input:checked + .switch-slider::before { transform: translateX(18px); }
+
+/* ── Drop Zone ── */
+.dropzone {
+  border: 2px dashed hsl(215 32% 85%);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  transition: all 0.2s;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+.dropzone:hover { border-color: var(--primary); background: hsl(257 48% 54% / 0.02); }
+.dropzone-placeholder {
+  text-align: center;
+  color: var(--muted-fg);
+  margin: auto;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* ── File list ── */
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  font-size: 12px;
+  background: var(--bg);
+}
+.file-item svg { cursor: pointer; color: var(--destructive); flex-shrink: 0; }
+
+/* ── Icon button ── */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--muted-fg);
+}
+.icon-btn:hover { background: var(--muted); color: var(--fg); }
+
+/* ── Progress ── */
+.progress-bar {
+  height: 8px;
+  background: hsl(215 32% 91%);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 8px;
+  transition: width 0.3s ease;
+}
+
+/* ── Stats cards ── */
+.stats-row { display: flex; gap: 10px; }
+.stat-card {
+  flex: 1;
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  text-align: center;
+}
+.stat-card .num { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
+.stat-card .label { font-size: 11px; color: var(--muted-fg); margin-top: 2px; }
+
+/* ── Table ── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.data-table th:first-child, .data-table td:first-child { width: 36px; text-align: center; }
+.data-table th {
+  background: var(--muted);
+  padding: 8px;
+  text-align: left;
+  font-weight: 500;
+  border-bottom: 2px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.data-table th:nth-child(2), .data-table td:nth-child(2) { width: 34%; }
+.data-table th:nth-child(3), .data-table td:nth-child(3) { width: 12%; }
+.data-table th:nth-child(4), .data-table td:nth-child(4) { width: 8%; }
+.data-table th:nth-child(5), .data-table td:nth-child(5) { width: 46%; }
+.data-table td {
+  padding: 8px;
+  border-bottom: 1px solid hsl(215 32% 95%);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.data-table tr:hover td { background: var(--muted); }
+.data-table .badge { padding-left: 0; padding-right: 0; }
+
+/* ── Markdown Result ── */
+.result-view {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 24px;
+  font-size: 14px; line-height: 1.8; color: var(--fg);
+}
+.result-view h1, .result-view h2, .result-view h3 {
+  margin: 20px 0 10px; font-family: var(--font-display); font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.result-view h1 { font-size: 1.4em; border-bottom: 2px solid var(--border); padding-bottom: 6px; }
+.result-view h2 { font-size: 1.2em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.result-view p { margin-bottom: 10px; }
+.result-view ul, .result-view ol { margin: 0 0 14px 22px; }
+.result-view li { margin-bottom: 3px; }
+.result-view blockquote {
+  border-left: 3px solid var(--primary);
+  padding: 0 14px;
+  color: var(--muted-fg);
+  margin: 14px 0;
+  font-style: italic;
+}
+.result-view pre {
+  background: hsl(232 47% 10%);
+  color: hsl(210 40% 98%);
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 14px 0;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+}
+.result-view code {
+  background: hsl(257 48% 54% / 0.08);
+  color: var(--primary);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+.result-view pre code { background: transparent; color: inherit; padding: 0; }
+.result-view table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+.result-view th, .result-view td {
+  border: 1px solid var(--border); padding: 8px 10px; text-align: left;
+}
+.result-view th { background: var(--muted); font-weight: 600; }
+
+/* ── Folder group ── */
+.folder-group { margin-bottom: 6px; }
+.folder-header {
+  background: var(--muted); border: 1px solid var(--border); padding: 7px 10px;
+  border-radius: var(--radius-sm); display: flex; align-items: center; cursor: pointer;
+  font-size: 12px; font-weight: 600; gap: 6px;
+}
+.folder-content { padding-left: 14px; margin-top: 4px; }
+.folder-content.collapsed { display: none; }
+.chevron { transition: transform 0.2s; }
+.collapsed .chevron { transform: rotate(-90deg); }
+
+/* ── Modal ── */
+.modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+  display: none; align-items: center; justify-content: center;
+  z-index: 9999; padding: 24px;
+}
+.modal {
+  width: min(900px, 92vw); height: min(700px, 88vh);
+  background: var(--bg); border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-head {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; background: var(--muted);
+}
+.modal-title { font-size: 13px; font-weight: 700; color: var(--fg); }
+.modal-body { flex: 1; overflow: auto; padding: 14px; }
+.modal-body pre {
+  margin: 0;
+  background: hsl(232 47% 10%); color: hsl(210 40% 98%);
+  border-radius: var(--radius-sm); padding: 14px;
+  white-space: pre-wrap; word-break: break-word;
+  line-height: 1.7; font-size: 12px;
+  font-family: Consolas, monospace;
+}
+.modal-body mark { background: hsl(50 100% 80%); color: hsl(210 12% 10%); border-radius: 4px; padding: 0 2px; }
+
+/* ── Quote section ── */
+.quote-section {
+  margin-top: 12px;
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  border: 1px solid hsl(215 32% 92%);
+  overflow: hidden;
+}
+.quote-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 9px 12px; font-size: 12px; font-weight: 700;
+  border-bottom: 1px solid hsl(215 32% 92%);
+}
+.quote-list { padding: 8px 12px; max-height: 200px; overflow-y: auto; }
+.quote-item {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 9px 10px; margin-bottom: 8px;
+}
+.quote-item-title { font-weight: 700; font-size: 11px; color: var(--fg); margin-bottom: 4px; }
+.quote-item pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: Consolas, monospace; font-size: 11px; line-height: 1.6; color: hsl(215 25% 30%);
+}
+
+/* ── History list ── */
+.history-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 5px;
+  background: var(--bg);
+  font-size: 11px;
+}
+
+/* ── Flex helpers ── */
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.flex-center { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; min-width: 0; }
+.loading-spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* ── Page transitions ── */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes page-exit {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-6px); }
+}
+.page {
+  display: none;
+  flex: 1; flex-direction: column;
+  padding: 28px 32px; gap: 20px; min-height: 0;
+}
+.page.active { display: flex; }
+.page.anim-enter { animation: page-enter 0.35s cubic-bezier(0.16,1,0.3,1) forwards; }
+.page.anim-exit { animation: page-exit 0.2s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+/* ── SVG icon animations ── */
+@keyframes iconFloat { 0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)} }
+@keyframes iconGlow { 0%,100%{opacity:.25}50%{opacity:1;filter:drop-shadow(0 0 4px hsl(257 48% 54% / 0.6))} }
+@keyframes scanMove { 0%{transform:translateY(0)}50%{transform:translateY(12px)}100%{transform:translateY(0)} }
+@keyframes nodePing { 0%,100%{r:2;opacity:.4}50%{r:4;opacity:1} }
+@keyframes pageFlip { 0%,100%{transform:rotateY(0)}25%{transform:rotateY(-15deg)}75%{transform:rotateY(15deg)} }
+@keyframes bubbleRise { 0%{transform:translateY(0);opacity:.6}100%{transform:translateY(-12px);opacity:0} }
+.anim-float { animation: iconFloat 3s ease-in-out infinite; }
+.anim-glow { animation: iconGlow 2s ease-in-out infinite; }
+.anim-scan { animation: scanMove 2.5s ease-in-out infinite; }
+.anim-node { animation: nodePing 1.8s ease-in-out infinite; }
+.anim-flip { animation: pageFlip 4s ease-in-out infinite; transform-origin: bottom center; }
+.anim-bubble { animation: bubbleRise 2s ease-out infinite; }
+.anim-node:nth-child(2){animation-delay:.6s}
+.anim-node:nth-child(3){animation-delay:1.2s}
+.anim-glow:nth-child(2){animation-delay:.7s}
+.anim-glow:nth-child(3){animation-delay:1.4s}
+/* ── Hover animations ── */
+.card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+.sidebar-item { transition: all 0.2s ease; }
+.sidebar-item:hover { transform: translateX(3px); }
+.sidebar-item:hover svg { transform: scale(1.08); transition: transform 0.2s ease; }
+.btn { transition: all 0.2s ease; }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn-primary:hover:not(:disabled) { box-shadow: 0 4px 12px hsl(257 48% 54% / 0.25); }
+.btn i, .btn svg { vertical-align: middle; }
+.page-header-icon { transition: all 0.25s ease; }
+.page-header-icon:hover { transform: scale(1.08); }
+.page-header-icon:hover svg .anim-glow { animation-duration: 1s; }
+.text-muted { color: var(--muted-fg); font-size: 12px; }
+.text-xs { font-size: 11px; }
+.text-sm { font-size: 13px; }
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
+.mt-4 { margin-top: 16px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
+.mb-4 { margin-bottom: 16px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+/* ── Home page animations ── */
+@keyframes gradient-shift { 0%,100%{background-position:0% 50%}50%{background-position:100% 50%} }
+@keyframes float-logo { 0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)} }
+@keyframes fade-up { from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)} }
+@keyframes dash-flow { to{stroke-dashoffset:-20} }
+.feature-card:hover { border-color:hsl(257 48% 54% / 0.25); transform:translateY(-2px); box-shadow:0 6px 20px hsl(257 48% 54% / 0.06); }
+.feature-accent-blue { position:absolute; top:0; left:0; width:3px; height:100%; background:linear-gradient(to bottom,hsl(257 44% 62% / 0.25),transparent); border-radius:0.75rem 0 0 0.75rem; }
+.feature-accent-violet { position:absolute; top:0; left:0; width:3px; height:100%; background:linear-gradient(to bottom,hsl(257 48% 44% / 0.25),transparent); border-radius:0.75rem 0 0 0.75rem; }
+.step-card { display:flex; flex-direction:column; align-items:center; text-align:center; }
+.step-icon-wrap { width:56px;height:56px; border-radius:0.75rem; border:1px solid hsl(257 48% 54% / 0.15); background:hsl(257 48% 54% / 0.04); display:flex; align-items:center; justify-content:center; margin-bottom:12px; transition:all 0.2s; }
+.step-icon-wrap:hover { transform:scale(1.05); border-color:hsl(257 48% 54% / 0.35); background:hsl(257 48% 54% / 0.08); box-shadow:0 4px 12px hsl(257 48% 54% / 0.08); }
+.tech-tag { display:inline-flex; align-items:center; padding:5px 12px; border-radius:0.5rem; border:1px solid; font-size:11px; font-weight:600; }
+/* ── Step indicator ── */
+.step-dot { width:28px; height:28px; border-radius:50%; background:var(--muted); border:2px solid hsl(215 32% 85%); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--muted-fg); flex-shrink:0; transition:all 0.3s; }
+.step-dot.done { background:var(--primary); border-color:var(--primary); color:#fff; }
+.step-dot.active { border-color:var(--primary); color:var(--primary); animation:iconGlow 1.5s ease-in-out infinite; }
+.step-line { flex:1; height:2px; background:hsl(215 32% 85%); margin:0 4px; transition:all 0.3s; }
+.step-line.done { background:var(--primary); }
+.step-label { font-size:10px; margin-top:5px; color:var(--muted-fg); font-weight:600; text-align:center; transition:color 0.3s; white-space:nowrap; }
+.step-label.done { color:var(--primary); }
+.step-label.active { color:var(--primary); }
+</style>
+</head>
+<body>
+
+<!-- ====== Sidebar ====== -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <style>
+        @keyframes chipPulse { 0%,100%{opacity:.35}50%{opacity:1;filter:drop-shadow(0 0 3px hsl(257 48% 54% / 0.8))} }
+        @keyframes chipFloat { 0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)} }
+        .chip-body { animation: chipFloat 4s ease-in-out infinite; }
+        .chip-dot { animation: chipPulse 2s ease-in-out infinite; }
+        .chip-dot:nth-child(3){animation-delay:.5s}
+        .chip-dot:nth-child(4){animation-delay:1s}
+        .chip-dot:nth-child(5){animation-delay:1.5s}
+      </style>
+      <rect class="chip-body" x="2" y="2" width="32" height="32" rx="7" fill="hsl(257 48% 54% / 0.12)" stroke="hsl(257 48% 54%)" stroke-width="2"/>
+      <path class="chip-body" d="M14 2 L14 5 M22 2 L22 5 M2 14 L5 14 M31 14 L34 14 M14 34 L14 31 M22 34 L22 31 M2 22 L5 22 M31 22 L34 22" stroke="hsl(257 48% 54% / 0.5)" stroke-width="1.5" stroke-linecap="round"/>
+      <circle class="chip-dot" cx="10" cy="10" r="2" fill="hsl(257 48% 54%)"/>
+      <circle class="chip-dot" cx="26" cy="10" r="2" fill="hsl(257 48% 54%)"/>
+      <circle class="chip-dot" cx="18" cy="18" r="2.5" fill="hsl(257 48% 54%)"/>
+      <circle class="chip-dot" cx="26" cy="26" r="2" fill="hsl(257 48% 54%)"/>
+      <rect x="8" y="25" width="20" height="3" rx="1.5" fill="hsl(257 48% 54% / 0.6)" class="anim-scan"/>
+    </svg>
+    <div>
+      <h1>智能文本处理</h1>
+      <span>完全离线 · AI 驱动</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav" role="navigation">
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">概览</div>
+      <div class="sidebar-item active" data-page="home" onclick="switchPage('home')">
+        <i data-lucide="home"></i> 首页
+      </div>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">文本处理</div>
+      <div class="sidebar-item" data-page="classify" onclick="switchPage('classify')">
+        <i data-lucide="scan-search"></i> 语音文本分类
+      </div>
+      <div class="sidebar-item" data-page="analyze" onclick="switchPage('analyze')">
+        <i data-lucide="brain-circuit"></i> 智能文本分析
+      </div>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <span>v2.0.0 · 离线版</span>
+    <span style="display:flex;align-items:center;gap:4px;"><i data-lucide="cpu" style="width:12px;height:12px;"></i> Ollama</span>
+  </div>
+</aside>
+
+<!-- ====== Main Content ====== -->
+<main class="main">
+
+  <!-- ═══ PAGE: 首页 ═══ -->
+  <div class="page active" id="page-home" style="gap:24px;">
+    <!-- Hero -->
+    <div style="border-radius:1rem; border:1px solid hsl(257 48% 54% / 0.12); background:linear-gradient(135deg, hsl(257 48% 54% / 0.04), transparent 40%, hsl(257 48% 54% / 0.06)); background-size:200% 200%; animation:gradient-shift 8s ease infinite; display:flex; flex-direction:column; align-items:center; text-align:center; padding:48px 24px;">
+      <div style="animation:float-logo 4s ease-in-out infinite; margin-bottom:20px;">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+          <rect x="4" y="4" width="48" height="48" rx="12" fill="hsl(257 48% 54% / 0.1)" stroke="hsl(257 48% 54%)" stroke-width="2.5"/>
+          <circle cx="18" cy="18" r="3.5" class="anim-glow" fill="hsl(257 48% 54%)"/>
+          <circle cx="18" cy="38" r="3.5" class="anim-glow" fill="hsl(257 48% 54%)"/>
+          <circle cx="38" cy="18" r="3.5" class="anim-glow" fill="hsl(257 48% 54%)"/>
+          <circle cx="38" cy="38" r="3.5" class="anim-glow" fill="hsl(257 48% 54%)"/>
+          <rect x="24" y="22" width="8" height="12" rx="2" fill="hsl(257 48% 54%)" class="anim-scan"/>
+        </svg>
+      </div>
+      <span class="badge badge-primary" style="margin-bottom:14px; padding:4px 14px; font-size:11px;">完全离线 · AI 驱动 · Docker 一键部署</span>
+      <h1 style="font-family:var(--font-display); font-size:28px; font-weight:700; letter-spacing:-0.02em; color:var(--fg); margin-bottom:8px; animation:fade-up 0.5s ease-out 0.1s both;">
+        全离线智能文本处理系统
+      </h1>
+      <p style="font-size:14px; color:var(--muted-fg); max-width:560px; line-height:1.7; margin-bottom:24px; animation:fade-up 0.5s ease-out 0.2s both;">
+        基于 Dify 1.13.3 + Ollama，提供语音文本分类与智能文本分析双引擎。<br>从语音转文字噪声处理到深度语义理解，打造端到端的智能文本处理工作流。
+       </p>
+     </div>
+
+    <!-- Stats -->
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">
+      <div class="stat-card" style="display:flex; align-items:center; gap:10px; text-align:left; padding:14px 18px;">
+        <div style="width:34px;height:34px; border-radius:8px; background:hsl(257 48% 54% / 0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <i data-lucide="layers" style="width:16px;height:16px;color:var(--primary);"></i>
+        </div>
+        <div>
+          <div class="num" style="font-size:16px;">2 大核心模块</div>
+          <div class="label">智能文本分析 + 语音文本分类</div>
+        </div>
+      </div>
+      <div class="stat-card" style="display:flex; align-items:center; gap:10px; text-align:left; padding:14px 18px;">
+        <div style="width:34px;height:34px; border-radius:8px; background:hsl(257 48% 54% / 0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <i data-lucide="cpu" style="width:16px;height:16px;color:var(--primary);"></i>
+        </div>
+        <div>
+          <div class="num" style="font-size:16px;">Ollama 驱动</div>
+          <div class="label">Qwen3:8b 本地推理</div>
+        </div>
+      </div>
+      <div class="stat-card" style="display:flex; align-items:center; gap:10px; text-align:left; padding:14px 18px;">
+        <div style="width:34px;height:34px; border-radius:8px; background:hsl(257 48% 54% / 0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <i data-lucide="scan-search" style="width:16px;height:16px;color:var(--primary);"></i>
+        </div>
+        <div>
+          <div class="num" style="font-size:16px;">双引擎架构</div>
+          <div class="label">关键词匹配 + LLM 语义</div>
+        </div>
+      </div>
+      <div class="stat-card" style="display:flex; align-items:center; gap:10px; text-align:left; padding:14px 18px;">
+        <div style="width:34px;height:34px; border-radius:8px; background:hsl(257 48% 54% / 0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <i data-lucide="shield" style="width:16px;height:16px;color:var(--primary);"></i>
+        </div>
+        <div>
+          <div class="num" style="font-size:16px;">完全离线</div>
+          <div class="label">数据不出本地</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature cards -->
+    <div>
+      <h2 style="font-family:var(--font-display); font-size:20px; font-weight:700; margin-bottom:4px;">核心功能</h2>
+      <p style="font-size:12px; color:var(--muted-fg); margin-bottom:14px;">从数据摄入到智能文本分析，覆盖文本处理的完整链路</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div class="feature-card" onclick="switchPage('classify')">
+          <div class="feature-accent-violet"></div>
+          <div style="padding:20px 20px 20px 24px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px;">
+              <div style="width:44px;height:44px; border-radius:10px; background:hsl(257 48% 44% / 0.08); display:flex; align-items:center; justify-content:center; transition:transform 0.2s;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(257 48% 44%)" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+              </div>
+              <span class="badge badge-muted" style="font-size:10px;">01</span>
+            </div>
+            <h3 style="font-size:17px; font-weight:700; margin-bottom:6px;">语音文本分类</h3>
+            <p style="font-size:12px; color:var(--muted-fg); line-height:1.7;">关键词匹配与 LLM 并行分类，结果比对一致通过，冲突标记待人工处理。</p>
+            <div style="margin-top:12px; display:flex; align-items:center; gap:4px; font-size:13px; font-weight:600; color:hsl(257 48% 44%);">
+              进入模块 <i data-lucide="arrow-right" style="width:13px;height:13px;"></i>
+            </div>
+          </div>
+        </div>
+        <div class="feature-card" onclick="switchPage('analyze')">
+          <div class="feature-accent-blue"></div>
+          <div style="padding:20px 20px 20px 24px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px;">
+              <div style="width:44px;height:44px; border-radius:10px; background:hsl(257 44% 62% / 0.08); display:flex; align-items:center; justify-content:center; transition:transform 0.2s;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(257 44% 62%)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              </div>
+              <span class="badge badge-muted" style="font-size:10px;">02</span>
+            </div>
+            <h3 style="font-size:17px; font-weight:700; margin-bottom:6px;">智能文本分析</h3>
+            <p style="font-size:12px; color:var(--muted-fg); line-height:1.7;">上传文档，输入指令，AI 自动完成要素提取、合并总结、文本聚合与交叉对比。</p>
+            <div style="margin-top:12px; display:flex; align-items:center; gap:4px; font-size:13px; font-weight:600; color:hsl(257 44% 62%);">
+              进入模块 <i data-lucide="arrow-right" style="width:13px;height:13px;"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Workflow -->
+    <div>
+      <h2 style="font-family:var(--font-display); font-size:20px; font-weight:700; margin-bottom:4px;">工作流程</h2>
+      <p style="font-size:12px; color:var(--muted-fg); margin-bottom:14px;">两套引擎，覆盖语音文本分类与智能文档分析全链路</p>
+      
+      <!-- 语音文本分类流程 -->
+      <div style="position:relative; border-radius:0.75rem; border:1px solid hsl(215 32% 91% / 0.6); background:var(--card); padding:24px 20px; margin-bottom:16px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:16px; color:var(--primary); display:flex; align-items:center; gap:6px;">
+          <i data-lucide="scan-search" style="width:16px;height:16px;"></i> 语音文本分类引擎
+        </div>
+        <div style="position:absolute; top:72px; left:calc(16.67% + 30px); right:calc(16.67% + 30px); pointer-events:none;">
+          <svg width="100%" height="4">
+            <line x1="1%" y1="2" x2="46%" y2="2" stroke="hsl(215 32% 85%)" stroke-width="1.5" stroke-dasharray="5 4" style="animation:dash-flow 1.5s linear infinite;"/>
+            <line x1="54%" y1="2" x2="99%" y2="2" stroke="hsl(215 32% 85%)" stroke-width="1.5" stroke-dasharray="5 4" style="animation:dash-flow 1.5s linear infinite;"/>
+          </svg>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px 16px;">
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="file-text" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 01</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">上传文本</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">上传含语音转文字噪声的多行文本文件，每行一条待分类。</p>
+          </div>
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="search" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 02</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">关键词匹配+分类</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">关键词匹配与 LLM 并行独立分类，互不依赖，结果比对验证。</p>
+          </div>
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="cpu" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 03</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">结果比对输出</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">比对两者分类是否一致，一致直接通过，冲突标记待人工处理。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 智能文本分析流程 -->
+      <div style="position:relative; border-radius:0.75rem; border:1px solid hsl(215 32% 91% / 0.6); background:var(--card); padding:24px 20px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:16px; color:var(--primary); display:flex; align-items:center; gap:6px;">
+          <i data-lucide="brain-circuit" style="width:16px;height:16px;"></i> 智能文本分析引擎
+        </div>
+        <div style="position:absolute; top:72px; left:calc(16.67% + 30px); right:calc(16.67% + 30px); pointer-events:none;">
+          <svg width="100%" height="4">
+            <line x1="1%" y1="2" x2="46%" y2="2" stroke="hsl(215 32% 85%)" stroke-width="1.5" stroke-dasharray="5 4" style="animation:dash-flow 1.5s linear infinite;"/>
+            <line x1="54%" y1="2" x2="99%" y2="2" stroke="hsl(215 32% 85%)" stroke-width="1.5" stroke-dasharray="5 4" style="animation:dash-flow 1.5s linear infinite;"/>
+          </svg>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px 16px;">
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="upload" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 01</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">上传文档</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">拖拽上传文件/文件夹，支持 txt、docx、pdf、md 等格式。</p>
+          </div>
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="cpu" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 02</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">AI 智能处理</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">LLM 提取要素、合并总结、文本聚合、多文档交叉对比分析。</p>
+          </div>
+          <div class="step-card">
+            <div class="step-icon-wrap"><i data-lucide="file-output" style="width:26px;height:26px;color:var(--primary);"></i></div>
+            <span style="font-size:10px; font-family:var(--font-display); font-weight:600; color:hsl(257 48% 54% / 0.5); letter-spacing:0.08em; margin-bottom:4px;">STEP 03</span>
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:4px;">结果输出</h3>
+            <p style="font-size:12px; color:var(--muted-fg); max-width:200px; line-height:1.6;">结构化 Markdown 报告 + 溯源引用定位原文，一键下载分析结果。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tech Stack -->
+    <div style="border-radius:0.75rem; border:1px solid hsl(215 32% 91% / 0.6); background:var(--card); padding:24px;">
+      <div style="text-align:center; margin-bottom:14px;">
+        <h2 style="font-size:17px; font-weight:700;">技术栈</h2>
+        <p style="font-size:11px; color:var(--muted-fg); margin-top:2px;">全离线 · 全栈自托管</p>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:8px;">
+        <span class="tech-tag" style="color:hsl(257 44% 62%); background:hsl(257 44% 62% / 0.06); border-color:hsl(257 44% 62% / 0.2);">Dify 1.13.3</span>
+        <span class="tech-tag" style="color:hsl(257 48% 54%); background:hsl(257 48% 54% / 0.06); border-color:hsl(257 48% 54% / 0.2);">Ollama</span>
+        <span class="tech-tag" style="color:hsl(257 48% 44%); background:hsl(257 48% 44% / 0.06); border-color:hsl(257 48% 44% / 0.2);">Qwen3:8b</span>
+        <span class="tech-tag" style="color:hsl(38 92% 50%); background:hsl(38 92% 50% / 0.06); border-color:hsl(38 92% 50% / 0.2);">Python Flask</span>
+        <span class="tech-tag" style="color:hsl(199 89% 48%); background:hsl(199 89% 48% / 0.06); border-color:hsl(199 89% 48% / 0.2);">Docker</span>
+        <span class="tech-tag" style="color:hsl(211 82% 34%); background:hsl(211 82% 34% / 0.06); border-color:hsl(211 82% 34% / 0.2);">PostgreSQL</span>
+        <span class="tech-tag" style="color:hsl(257 44% 62%); background:hsl(257 44% 62% / 0.06); border-color:hsl(257 44% 62% / 0.2);">Weaviate</span>
+        <span class="tech-tag" style="color:hsl(152 76% 40%); background:hsl(152 76% 40% / 0.06); border-color:hsl(152 76% 40% / 0.2);">nginx</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PAGE: 智能文本分析 ═══ -->
+  <div class="page" id="page-analyze">
+    <div class="page-header">
+      <div class="page-header-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="5" r="2" class="anim-node" fill="hsl(257 48% 54%)"/>
+          <circle cx="5" cy="15" r="2" class="anim-node" fill="hsl(257 48% 54%)"/>
+          <circle cx="15" cy="15" r="2" class="anim-node" fill="hsl(257 48% 54%)"/>
+          <line x1="10" y1="7" x2="5" y2="13" stroke="hsl(257 48% 54% / 0.5)" stroke-width="1.5"/>
+          <line x1="10" y1="7" x2="15" y2="13" stroke="hsl(257 48% 54% / 0.5)" stroke-width="1.5"/>
+          <line x1="7" y1="15" x2="13" y2="15" stroke="hsl(257 48% 54% / 0.4)" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div>
+        <h2>智能文本分析</h2>
+        <p>上传文档，输入指令，AI 自动提取、总结、对比分析</p>
+      </div>
+    </div>
+
+    <div class="grid-2" style="flex:1; min-height:0;">
+      <!-- 左：输入 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">
+          <div class="flex-center"><i data-lucide="upload" style="width:16px;"></i> 数据摄入</div>
+          <div class="flex-center gap-2">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('fileInput').click()">
+              <i data-lucide="file-plus" style="width:14px;"></i> 上传文件
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('folderInput').click()">
+              <i data-lucide="folder-plus" style="width:14px;"></i> 上传文件夹
+            </button>
+          </div>
+        </div>
+        <input type="file" id="fileInput" multiple onchange="handleFileSelect(event)" style="display:none">
+        <input type="file" id="folderInput" webkitdirectory directory allowdirs multiple onchange="handleFileSelect(event)" style="display:none">
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+          <div class="dropzone" id="dropZone" style="flex:1;overflow-y:auto;">
+            <div id="placeholder" class="dropzone-placeholder">
+              <i data-lucide="inbox" style="width:36px;height:36px;margin-bottom:10px;opacity:0.2;"></i>
+              <p>拖拽文件或文件夹到此处</p>
+            </div>
+            <div id="fileList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：配置+结果 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">运行配置与输出</div>
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;gap:12px;">
+          <!-- RAG -->
+          <div class="flex-between" style="padding:10px 12px;background:var(--muted);border-radius:var(--radius-sm);">
+            <span class="text-sm">开启本地知识库增强 (RAG)</span>
+            <label class="switch"><input type="checkbox" id="ragSwitch"><span class="switch-slider"></span></label>
+          </div>
+          <!-- Preset buttons -->
+          <div class="flex-center gap-2">
+            <button class="btn btn-outline btn-sm" onclick="setCmd('请提取文档中的关键地名、人名和组织机构，并分析其关联关系')">要素提取</button>
+            <button class="btn btn-outline btn-sm" onclick="setCmd('请对所有上传文档的内容进行深度合并总结，生成一份逻辑清晰的报告')">合并总结</button>
+            <button class="btn btn-outline btn-sm" onclick="setCmd('请基于上传的文本生成五段报文：事件概述、起因、现状、后果、对策，每段约200字。')">文本聚合</button>
+          </div>
+          <!-- Task name + queue -->
+          <div>
+            <label class="text-xs text-muted" for="folderNameInput">任务名称</label>
+            <input class="input mt-2" id="folderNameInput" type="text" placeholder="例如：案件A、文件夹1">
+            <div class="flex-center gap-2 mt-3">
+              <button class="btn btn-outline btn-sm" onclick="addCurrentTaskToQueue()">加入任务队列</button>
+            </div>
+            <div id="queueList" class="text-xs text-muted mt-2"></div>
+          </div>
+          <!-- Instruction -->
+          <textarea class="input" id="mainCmd" placeholder="在此输入自定义分析指令..." style="flex:1;min-height:80px;"></textarea>
+          <!-- Launch -->
+          <button class="btn btn-primary btn-lg btn-block" id="launchBtn" onclick="launchEngine()">
+            <i data-lucide="play" id="launchIcon"></i> <span id="launchText">启动智能处理</span>
+          </button>
+          <!-- Result -->
+          <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;">
+            <div class="flex-between mb-2">
+              <span class="text-sm" style="font-weight:600;">系统输出结果</span>
+              <div class="flex-center gap-2">
+                <label class="switch" style="transform:scale(0.8);transform-origin:right center;">
+                  <input type="checkbox" id="quoteSwitch" onchange="toggleQuoteView(this.checked)"><span class="switch-slider"></span>
+                </label>
+                <span class="text-xs text-muted">引用原文</span>
+                <button class="icon-btn" onclick="downloadResult()" title="下载"><i data-lucide="download" style="width:14px;"></i></button>
+              </div>
+            </div>
+            <div class="result-view" id="resultContainer" style="background:var(--muted);border-radius:var(--radius-sm);">等待分析任务启动...</div>
+          </div>
+          <!-- History -->
+          <div>
+            <div class="text-sm" style="font-weight:600;margin-bottom:6px;">历史记录（最近10条）</div>
+            <div id="historyList" style="max-height:120px;overflow-y:auto;font-size:11px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PAGE: 语音文本分类 ═══ -->
+  <div class="page" id="page-classify" style="flex:none;gap:16px;">
+    <div class="page-header">
+      <div class="page-header-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="8" cy="8" r="5" stroke="hsl(257 48% 54%)" stroke-width="1.8" fill="none"/>
+          <line x1="12" y1="12" x2="17" y2="17" stroke="hsl(257 48% 54%)" stroke-width="2" stroke-linecap="round"/>
+          <line x1="4" y1="8" x2="12" y2="8" stroke="hsl(257 48% 54% / 0.6)" stroke-width="1.5" stroke-linecap="round" class="anim-scan"/>
+        </svg>
+      </div>
+      <div>
+        <h2>语音文本分类</h2>
+        <p>关键词匹配 + LLM 并行分类，结果比对一致则通过，冲突则待人工处理</p>
+      </div>
+    </div>
+
+    <!-- StepIndicator -->
+    <div style="display:flex; align-items:flex-start; gap:0; flex-shrink:0;" id="stepInd">
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot done" id="stepDot1"><span>1</span></div>
+        <span class="step-label done" id="stepLabel1">上传语音文本</span>
+      </div>
+      <div class="step-line done" id="stepLine1" style="margin-top:13px;"></div>
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot" id="stepDot2"><span>2</span></div>
+        <span class="step-label" id="stepLabel2">关键词匹配+LLM并行分类</span>
+      </div>
+      <div class="step-line" id="stepLine2" style="margin-top:13px;"></div>
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot" id="stepDot3"><span>3</span></div>
+        <span class="step-label" id="stepLabel3">结果输出</span>
+      </div>
+    </div>
+
+    <!-- Card: LLM Mode -->
+    <div class="card" style="flex-shrink:0;">
+      <div class="card-header">调用方式</div>
+      <div class="card-body" style="padding:14px 20px;">
+        <div style="display:flex; gap:24px; align-items:center; margin-bottom:12px;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="llmMode" value="local" checked onchange="onLLMModeChange()">
+            <span class="text-sm">本地模型 (Ollama)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="llmMode" value="api" onchange="onLLMModeChange()">
+            <span class="text-sm">AI API</span>
+          </label>
+        </div>
+        <div id="apiConfig" style="display:none;">
+          <div id="apiConfigList" style="margin-bottom:10px; max-height:120px; overflow-y:auto;"></div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <input class="input" id="apiName" placeholder="名称（如阿里百炼）" style="flex:1; min-width:100px;">
+            <input class="input" id="apiBase" placeholder="BASE_URL" style="flex:2; min-width:200px;">
+            <input class="input" id="apiKey" type="password" placeholder="API Key" style="flex:2; min-width:180px;">
+            <input class="input" id="apiModel" placeholder="模型名" style="flex:1; min-width:100px;" value="qwen-plus">
+            <button class="btn btn-primary btn-sm" onclick="saveAPIConfig()" style="flex-shrink:0;">保存配置</button>
+          </div>
+          <div id="apiCurrent" class="text-xs text-muted mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card: Upload -->
+    <div class="card" style="flex-shrink:0;">
+      <div class="card-header">
+        <div class="flex-center"><i data-lucide="upload" style="width:16px;"></i> 上传文本文件</div>
+        <span class="text-xs text-muted">支持拖拽或点击选择，每行一条语音文本</span>
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div style="border:2px dashed hsl(215 32% 85%); border-radius:var(--radius-sm); padding:32px; text-align:center; transition:all 0.2s; cursor:pointer;"
+          onmouseover="this.style.borderColor='var(--primary)';this.style.background='hsl(257 48% 54% / 0.02)'"
+          onmouseout="this.style.borderColor='';this.style.background=''"
+          onclick="document.getElementById('classifyFileInput').click()">
+          <i data-lucide="file-text" style="width:32px;height:32px;margin-bottom:10px;color:var(--muted-fg);"></i>
+          <p class="text-sm text-muted">拖拽 txt 文件到此处，或点击选择文件</p>
+        </div>
+        <input type="file" id="classifyFileInput" accept=".txt" style="display:none;" onchange="onClassifyFileSelect(event)">
+        <div id="classifyFileInfo" class="text-xs text-muted"></div>
+
+        <div style="display:flex; gap:10px; align-items:flex-end;">
+          <div style="flex:1;">
+            <label class="text-xs text-muted">任务名称</label>
+            <input id="classifyTaskName" type="text" class="input mt-2" placeholder="例如：战斗日志分类">
+          </div>
+          <button class="btn btn-primary btn-lg" id="classifyLaunchBtn" onclick="startBatchClassify()" style="gap:8px;">
+            <i data-lucide="play" id="classifyLaunchIcon"></i> <span id="classifyLaunchText">启动分类</span>
+          </button>
+          <button class="btn btn-destructive btn-lg" id="classifyStopBtn" onclick="stopBatchClassify()" style="display:none;gap:8px;">
+            <i data-lucide="square" style="width:14px;"></i> 停止分类
+          </button>
+        </div>
+
+        <div id="classifyProgress" style="display:none;">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%;"></div></div>
+          <div class="text-xs text-muted" style="text-align:center;margin-top:4px;" id="progressText"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row" id="classifyStats"></div>
+
+    <!-- Card: Results -->
+    <div class="card" style="display:flex;flex-direction:column;">
+      <div class="card-header">
+        <span>分类结果</span>
+        <button class="btn btn-outline btn-sm" id="classifyDownloadBtn" onclick="downloadClassifyReport()" style="display:none;">
+          <i data-lucide="download" style="width:14px;"></i> 下载报告
+        </button>
+      </div>
+      <div class="card-body no-padding">
+        <div id="classifyResultTable" class="text-sm text-muted" style="text-align:center;">
+          <div style="padding:60px 0;">
+            <i data-lucide="inbox" style="width:36px;height:36px;margin-bottom:10px;opacity:0.2;"></i>
+            <p>等待启动批量分类任务...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ====== Source Modal ====== -->
+<div class="modal-mask" id="sourceModalMask" onclick="closeSourceModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div class="modal-title" id="sourceModalTitle">原文预览</div>
+      <div class="flex-center gap-2">
+        <button class="btn btn-outline btn-sm" onclick="openSourceInNewWindow()">新窗口查看</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--destructive);" onclick="closeSourceModal()">关闭</button>
+      </div>
+    </div>
+    <div class="modal-body" id="sourceModalBody"><pre>等待加载...</pre></div>
+  </div>
+</div>
+
+<!-- ====== Scripts ====== -->
+<script>
+const API_BASE = "";
+let selectedFiles = [];
+let lastResult = "";
+let currentFolderName = "批量分析";
+let taskQueue = [];
+let lastViewedTaskId = null;
+const taskLocalSources = {};
+let currentCitations = [];
+let showQuoteInResult = false;
+const taskCitationCache = {};
+const taskResultCache = {};
+const localRunningTasks = {};
+let historyAutoRefreshTimer = null;
+let sourceModalPayload = null;
+
+// ── Page switching ──
+let _pageSwitching = false;
+function switchPage(name) {
+  if (_pageSwitching) return;
+  _pageSwitching = true;
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  const current = document.querySelector('.page.active');
+  const target = document.getElementById(`page-${name}`);
+  if (!target || current === target) { _pageSwitching = false; return; }
+  function enterTarget() {
+    target.classList.add('active');
+    void target.offsetHeight; // force reflow to commit display:flex
+    target.classList.add('anim-enter');
+    target.addEventListener('animationend', function onEnter() {
+      target.removeEventListener('animationend', onEnter);
+      target.classList.remove('anim-enter');
+      _pageSwitching = false;
+    }, {once: true});
+  }
+  if (current) {
+    current.classList.add('anim-exit');
+    current.addEventListener('animationend', function onExit() {
+      current.removeEventListener('animationend', onExit);
+      current.classList.remove('active', 'anim-exit');
+      enterTarget();
+    }, {once: true});
+  } else {
+    enterTarget();
+  }
+  if (name === 'home') { if (historyAutoRefreshTimer) { clearInterval(historyAutoRefreshTimer); historyAutoRefreshTimer = null; } }
+  else if (name === 'analyze') { loadHistory(); startHistoryAutoRefresh(); } else { if (historyAutoRefreshTimer) { clearInterval(historyAutoRefreshTimer); historyAutoRefreshTimer = null; } }
+  lucide.createIcons();
+}
+
+// ── Helpers ──
+function escapeHtmlBasic(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function getFileExt(name) { const m = String(name||'').toLowerCase().match(/\.([a-z0-9]+)$/); return m ? m[1] : ''; }
+function isSupportedTextExt(ext) { return ['txt','md','csv','tsv','log','json','yml','yaml','xml','html','htm','ini','cfg','conf','py','js','ts','java','go','rs','c','cpp','h','hpp','sql'].includes(ext); }
+function stripThinkBlocks(text) { if(!text) return ''; let t=String(text); t=t.replace(/<think>[\s\S]*?<\/think>/gi,''); t=t.replace(/```think[\s\S]*?```/gi,''); return t.trim(); }
+function stripQuoteBlocks(text) { if(!text) return ''; let t=String(text); t=t.replace(/```quote[\s\S]*?```/gi,''); t=t.replace(/\n{3,}/g,'\n\n'); return t.trim(); }
+function renderMarkdown(text) { if(!text) return ''; return marked.parse(stripThinkBlocks(text)||''); }
+function getFolderName() { const v=document.getElementById('folderNameInput'); return (v&&v.value.trim())||currentFolderName||'批量分析'; }
+
+// ── File selection ──
+async function readFileAsText(file,maxChars=300000){return await new Promise(r=>{try{const re=new FileReader();re.onload=()=>{const t=typeof re.result==='string'?re.result:'';r(t.length>maxChars?t.slice(0,maxChars)+'\n\n[提示] 原文过长，已截断显示…':t)};re.onerror=()=>r(null);re.readAsText(file)}catch(e){r(null)}})}
+async function cacheTaskSources(taskId,files){if(!taskId)return;const tid=String(taskId);if(!taskLocalSources[tid])taskLocalSources[tid]={files:[],ready:!1};const existed=new Set(taskLocalSources[tid].files.map(f=>`${f.name}::${f.size||0}`));const toLoad=[];for(const f of(files||[])){const key=`${f.name}::${f.size||0}`;if(existed.has(key))continue;const ext=getFileExt(f.name);const e={name:f.name,size:f.size,ext,supported:isSupportedTextExt(ext),text:null};taskLocalSources[tid].files.push(e);existed.add(key);if(e.supported)toLoad.push({file:f,entry:e});}await Promise.all(toLoad.map(async({file,entry})=>{entry.text=await readFileAsText(file)}));taskLocalSources[tid].ready=!0}
+function handleFileSelect(event){const files=event.target.files||[];if(!files.length)return;const existing=new Set(selectedFiles.map(f=>f.webkitRelativePath||f.name));for(const file of files){const fp=file.webkitRelativePath||file.name;if(!existing.has(fp))selectedFiles.push(file)}event.target.value='';renderFiles();cacheTaskSources('temp',selectedFiles)}
+function renderFiles(){const list=document.getElementById('fileList');const ph=document.getElementById('placeholder');if(!selectedFiles.length){ph.style.display='block';list.innerHTML='';return}ph.style.display='none';const groups={_root:[]};selectedFiles.forEach((f,i)=>{const p=f.webkitRelativePath||'';if(p.includes('/')){const fd=p.split('/')[0];if(!groups[fd])groups[fd]=[];groups[fd].push({file:f,index:i})}else groups._root.push({file:f,index:i})});let h='';let fi=0;for(const folder in groups){if(folder==='_root')continue;const gid=`folder_group_${fi++}`;h+=`<div class="folder-group" id="${gid}"><div class="folder-header" onclick="toggleFolderById('${gid}')"><i class="chevron" data-lucide="chevron-down" style="width:13px;"></i><i data-lucide="folder" style="width:13px;margin-right:5px;"></i><span style="flex:1;cursor:pointer;">${folder}</span><i data-lucide="x" onclick="removeFolder('${folder}',event)" style="width:13px;color:var(--destructive);cursor:pointer;margin-left:6px;"></i></div><div class="folder-content" id="${gid}_content">${groups[folder].map(it=>`<div class="file-item"><span>${it.file.name}</span><i data-lucide="x" onclick="removeFile(${it.index})" style="color:var(--destructive);cursor:pointer;"></i></div>`).join('')}</div></div>`}groups._root.forEach(it=>{h+=`<div class="file-item"><span>${it.file.name}</span><i data-lucide="x" onclick="removeFile(${it.index})" style="color:var(--destructive);cursor:pointer;"></i></div>`});list.innerHTML=h;lucide.createIcons()}
+function removeFile(idx){selectedFiles.splice(idx,1);renderFiles();cacheTaskSources('temp',selectedFiles)}
+function removeFolder(folderName,e){e.stopPropagation();selectedFiles=selectedFiles.filter(f=>{const p=f.webkitRelativePath||'';return!p.startsWith(folderName+'/')});renderFiles();cacheTaskSources('temp',selectedFiles)}
+function toggleFolderById(gid){const g=document.getElementById(gid);const c=document.getElementById(gid+'_content');if(!g||!c)return;g.classList.toggle('collapsed');c.classList.toggle('collapsed')}
+
+// ── Analysis engine ──
+function setCmd(t){document.getElementById('mainCmd').value=t}
+async function launchEngine(){
+  const cmd=document.getElementById('mainCmd').value;
+  if(taskQueue.length>0){if(selectedFiles.length&&cmd){const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag});selectedFiles=[];renderFiles();renderQueue()}await launchQueue();return}
+  if(!selectedFiles.length||!cmd)return alert("请上传文件并输入指令");
+  const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon');
+  btn.disabled=!0;document.getElementById('launchText').innerText="后台处理中...";icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons();
+  const fd=new FormData();selectedFiles.forEach(f=>fd.append('files',f));fd.append('instruction',cmd);fd.append('rag_switch',document.getElementById('ragSwitch').checked);fd.append('folder_name',getFolderName());
+  try{const res=await fetch(API_BASE+'/upload_folder',{method:'POST',body:fd});const data=await res.json();if(data&&data.task_id){const tid=String(data.task_id);markTaskAsRunning(tid,getFolderName());loadHistory();cacheTaskSources(tid,selectedFiles).catch(e=>console.error(e));pollStatus(tid)}}catch(e){alert("启动失败");resetBtn()}
+}
+function addCurrentTaskToQueue(){const cmd=document.getElementById('mainCmd').value;if(!selectedFiles.length||!cmd){alert('请先选择文件并输入指令');return}const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag});selectedFiles=[];renderFiles();renderQueue()}
+function renderQueue(){const b=document.getElementById('queueList');if(!b)return;b.innerHTML=taskQueue.length?taskQueue.map((t,i)=>`<div>(${i+1}) ${t.name}（${t.files.length} 个文件）</div>`).join(''):'当前队列为空'}
+async function launchQueue(){if(!taskQueue.length){alert('当前队列为空');return}const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon'),text=document.getElementById('launchText');if(btn){btn.disabled=!0;text.innerText=`批量提交中...（${taskQueue.length} 项）`;icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons()}for(const t of taskQueue){const fd=new FormData();t.files.forEach(f=>fd.append('files',f));fd.append('instruction',t.instruction);fd.append('rag_switch',t.rag);fd.append('folder_name',t.name);try{const res=await fetch(API_BASE+'/upload_folder',{method:'POST',body:fd});const data=await res.json().catch(()=>null);if(data&&data.task_id){const tid=String(data.task_id);markTaskAsRunning(tid,t.name);loadHistory();cacheTaskSources(tid,t.files).catch(e=>console.error(e))}}catch(e){alert('任务 '+t.name+' 提交失败')}}taskQueue=[];const pqr=setInterval(async()=>{try{const res=await fetch(API_BASE+'/tasks_recent?limit=20');const data=await res.json();for(const i of(data.items||[])){if(i.status!=='processing'&&i.status!=='waiting')unmarkLocalTask(String(i.task_id))}if(!Object.keys(localRunningTasks).length)clearInterval(pqr)}catch(e){clearInterval(pqr)}},2000);renderQueue();loadHistory();resetBtn()}
+async function pollStatus(tid){const container=document.getElementById('resultContainer');const taskId=String(tid);const timer=setInterval(async()=>{const res=await fetch(API_BASE+'/task_status/'+taskId);const data=await res.json();if(data.status==='completed'){clearInterval(timer);unmarkLocalTask(taskId);lastResult=stripThinkBlocks(data.result||'');lastViewedTaskId=taskId;taskResultCache[taskId]=lastResult;renderResultWithOptionalQuotes(taskId,lastResult);resetBtn();loadHistory()}else if(data.status==='failed'){clearInterval(timer);unmarkLocalTask(taskId);container.innerText="处理失败："+(data.error||'未知错误');resetBtn()}else if(data.status==='cancelled'){clearInterval(timer);unmarkLocalTask(taskId);container.innerText="任务已终止。";resetBtn();loadHistory()}else{container.innerHTML=`<div style="text-align:center;margin-top:30%"><i data-lucide="refresh-cw" class="loading-spin"></i><br>正在调取工作流...</div>`;lucide.createIcons()}},2000)}
+function resetBtn(){const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon');btn.disabled=!1;document.getElementById('launchText').innerText="启动智能处理";icon.setAttribute('data-lucide','play');icon.classList.remove('loading-spin');lucide.createIcons()}
+function downloadResult(){if(!lastResult)return;const blob=new Blob([lastResult],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download="分析报告.txt";a.click()}
+function markTaskAsRunning(id,name){const tid=String(id||'');if(!tid)return;localRunningTasks[tid]={task_id:String(id),folder_name:name||getFolderName()||'未命名任务',status:'processing',created_at:new Date().toISOString(),_local:!0}}
+function unmarkLocalTask(id){const tid=String(id||'');if(tid&&localRunningTasks[tid])delete localRunningTasks[tid]}
+function startHistoryAutoRefresh(){if(historyAutoRefreshTimer)clearInterval(historyAutoRefreshTimer);historyAutoRefreshTimer=setInterval(()=>{loadHistory()},2000)}
+
+// ── History ──
+async function loadHistory(){try{const res=await fetch(API_BASE+'/tasks_recent?limit=10');const data=await res.json();const list=document.getElementById('historyList');if(!list)return;const bi=(data&&data.items)||[];const bSet=new Set(bi.map(i=>String(i.task_id)));const lo=Object.values(localRunningTasks).filter(i=>!bSet.has(String(i.task_id)));const items=[...lo,...bi].slice(0,10);if(!items.length){list.innerHTML='<div class="text-muted">暂无历史记录</div>';return}list.innerHTML=items.map(i=>{const st=i.status==='completed'?'已完成':i.status==='processing'?'处理中':i.status==='waiting'?'等待中':i.status==='cancelled'?'已终止':i.status==='failed'?'失败':(i.status||'未知');const tm=i.created_at?String(i.created_at).replace('T',' ').slice(0,19):'';const cc=i.status==='processing'||i.status==='waiting';const cd=i.status!=='processing'&&i.status!=='waiting';return`<div class="history-item"><div class="flex-between"><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">[${st}] ${i.folder_name||'未命名'}</span><div class="flex-center gap-2"><button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;" onclick="viewHistoryItem('${i.task_id}')">查看</button>${cc?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;color:var(--destructive);" onclick="cancelHistoryTask('${i.task_id}')">终止</button>`:''}${cd?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;" onclick="deleteHistoryTask('${i.task_id}')">删除</button>`:''}</div></div><div class="text-xs text-muted mt-2">${tm}</div></div>`}).join('')}catch(e){console.error(e)}}
+async function cancelHistoryTask(id){if(!confirm('确定终止？'))return;try{await fetch(API_BASE+'/tasks/'+id+'/cancel',{method:'POST'});unmarkLocalTask(id);loadHistory();if(String(lastViewedTaskId||'')===String(id)){const c=document.getElementById('resultContainer');if(c)c.innerText='任务已终止。';currentCitations=[];delete taskCitationCache[String(id)]}}catch(e){alert('终止失败')}}
+async function deleteHistoryTask(id){if(!confirm('确定删除？'))return;try{await fetch(API_BASE+'/tasks/'+id,{method:'DELETE'});unmarkLocalTask(id);loadHistory();if(String(lastViewedTaskId||'')===String(id)){lastViewedTaskId=null;lastResult='';const c=document.getElementById('resultContainer');if(c)c.innerText='该历史记录已删除。';currentCitations=[]}delete taskCitationCache[String(id)];delete taskResultCache[String(id)]}catch(e){alert('删除失败')}}
+let historyViewTimer=null;
+async function viewHistoryItem(id){const c=document.getElementById('resultContainer');if(!c)return;const tid=String(id);lastViewedTaskId=tid;c.innerHTML=`<div style="text-align:center;margin-top:30%"><i data-lucide="refresh-cw" class="loading-spin"></i><br>加载中...</div>`;lucide.createIcons();if(historyViewTimer){clearInterval(historyViewTimer);historyViewTimer=null}const fetchO=async()=>{const r=await fetch(API_BASE+'/task_status/'+tid);return await r.json()};try{const d=await fetchO();if(d&&d.status==='completed'){lastResult=stripThinkBlocks(d.result||'');taskResultCache[tid]=lastResult;renderResultWithOptionalQuotes(tid,lastResult);return}if(d&&d.status==='failed'){c.innerText="处理失败："+(d.error||'未知错误');return}if(d&&d.status==='cancelled'){c.innerText="任务已终止。";return}c.innerHTML=`<div style="text-align:center;margin-top:30%"><i data-lucide="refresh-cw" class="loading-spin"></i><br>任务处理中，自动刷新中...</div>`;lucide.createIcons();historyViewTimer=setInterval(async()=>{try{const dd=await fetchO();if(dd&&dd.status==='completed'){clearInterval(historyViewTimer);historyViewTimer=null;lastResult=stripThinkBlocks(dd.result||'');taskResultCache[tid]=lastResult;renderResultWithOptionalQuotes(tid,lastResult)}else if(dd&&dd.status==='failed'){clearInterval(historyViewTimer);historyViewTimer=null;c.innerText="处理失败："+(dd.error||'未知错误')}}catch(e){console.error(e)}},2000)}catch(e){alert('加载失败')}}
+
+// ── Source citation ──
+function parseExplicitQuotes(resultText,limit=18){const text=String(resultText||'');const quotes=[];const re=/```quote\s*([\s\S]*?)```/g;let m;while((m=re.exec(text))!==null){const q=(m[1]||'').trim();if(!q||q.length<10)continue;quotes.push(q.length>1200?q.slice(0,1200)+'\n\n[提示] 引用过长，已截断显示…':q);if(quotes.length>=limit)break}return quotes}
+function extractCandidates(resultText,limit=14){const text=String(resultText||'');const explicit=parseExplicitQuotes(text,Math.max(limit,12));if(explicit.length)return explicit.slice(0,limit);const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(s=>s&&!s.startsWith('#'));const candidates=[];for(const l of lines){if(l.length<10)continue;candidates.push(l.length>120?l.slice(0,80):l);if(candidates.length>=limit)break}if(candidates.length<Math.min(6,limit)){const parts=text.split(/[。；;！？!?]/).map(s=>s.trim()).filter(s=>s.length>=10&&s.length<=120);for(const p of parts){if(candidates.length>=limit)break;candidates.push(p)}}return Array.from(new Set(candidates)).slice(0,limit)}
+function buildCitations(taskId,resultText){const tid=String(taskId||'');const store=taskLocalSources[tid];if(!store||!store.files||!store.files.length)return[];const sources=store.files.filter(f=>f.supported&&typeof f.text==='string'&&f.text);const explicitQuotes=parseExplicitQuotes(resultText,18);const candidates=explicitQuotes.length?explicitQuotes:extractCandidates(resultText);const citations=[];if(!sources.length){if(explicitQuotes.length)return explicitQuotes.slice(0,18).map(q=>({fileName:'（未能预览文件原文）',matchIndex:-1,matchLen:q.length,excerpt:q,needle:q,unmatched:!0}));return[]}for(const cand of candidates){const needle=cand;let matched=!1;for(const src of sources){let idx=src.text.indexOf(needle);let hitText=needle;if(idx<0&&needle.length>=18){const fl=Math.min(22,Math.max(14,Math.floor(needle.length/3)));const frags=[needle.slice(0,fl),needle.slice(Math.max(0,Math.floor(needle.length/2)-Math.floor(fl/2)),Math.max(0,Math.floor(needle.length/2)-Math.floor(fl/2))+fl),needle.slice(Math.max(0,needle.length-fl))];for(const f of frags){const fi=src.text.indexOf(f);if(fi>=0){idx=fi;hitText=f;break}}}if(idx>=0){const before=Math.max(0,idx-60);const after=Math.min(src.text.length,idx+hitText.length+60);citations.push({fileName:src.name,matchIndex:idx,matchLen:hitText.length,excerpt:src.text.slice(before,after),needle:hitText});matched=!0;break}}if(!matched&&explicitQuotes.length)citations.push({fileName:'（未定位到对应原文）',matchIndex:-1,matchLen:needle.length,excerpt:needle,needle,unmatched:!0});if(citations.length>=18)break}return citations}
+function getCitationHintHtml(tid){const store=taskLocalSources[String(tid||'')];if(!store||!store.files)return '未发现该任务的本地文件缓存。';const unsupported=store.files.filter(f=>!f.supported).map(f=>f.name);const hint=unsupported.length?`（以下文件类型暂不支持预览：${unsupported.slice(0,5).join('、')}${unsupported.length>5?'…':''}）`:'';return`未在本地可预览文件中匹配到引用片段。你可以：<br>1）让工作流在输出中明确引用原文段落；<br>2）换成 txt/md 等文本类文件；<br>3）或重试一次。${hint}`}
+function renderQuoteSectionHtml(tid,citations){if(!citations||!citations.length)return`<div class="quote-section"><div class="quote-header"><span>引用原文</span></div><div class="quote-list"><div style="color:var(--muted-fg);line-height:1.7;">${getCitationHintHtml(tid)}</div></div></div>`;return`<div class="quote-section"><div class="quote-header"><span>引用原文（${citations.length}）</span></div><div class="quote-list">${citations.map((c,i)=>`<div class="quote-item"><div class="quote-item-title">${escapeHtmlBasic(c.fileName||`引用 ${i+1}`)}</div><pre>${escapeHtmlBasic(c.excerpt||c.needle||'')}</pre><div style="margin-top:6px;text-align:right;"><button class="btn btn-outline btn-sm" style="padding:4px 8px;font-size:11px;" onclick="openCitation(${i})">查看原文定位</button></div></div>`).join('')}</div></div>`}
+function renderResultWithOptionalQuotes(taskId,resultText){const container=document.getElementById('resultContainer');if(!container)return;const tid=String(taskId||lastViewedTaskId||'');const clean=stripThinkBlocks(resultText||'');const reportOnly=stripQuoteBlocks(clean);const baseHtml=renderMarkdown(reportOnly);if(!showQuoteInResult||!tid){currentCitations=[];container.innerHTML=baseHtml;return}lastViewedTaskId=tid;const store=taskLocalSources[tid];if(store&&!store.ready){container.innerHTML=baseHtml+`<div class="quote-section"><div class="quote-header"><span>引用原文</span></div><div class="quote-list"><div style="text-align:center;padding:12px 0;color:var(--muted-fg);"><i data-lucide="refresh-cw" class="loading-spin"></i><div>正在读取本地文件...</div></div></div></div>`;lucide.createIcons();return}const citations=buildCitations(tid,clean);taskCitationCache[tid]=citations;currentCitations=citations;container.innerHTML=baseHtml+renderQuoteSectionHtml(tid,citations)}
+function toggleQuoteView(checked){showQuoteInResult=!!checked;const tid=String(lastViewedTaskId||'');const r=(tid&&taskResultCache[tid])||lastResult||'';renderResultWithOptionalQuotes(tid,r)}
+function openCitation(i){const c=currentCitations[i];if(!c)return;if(c.matchIndex===-1||c.unmatched){openSourceModal(c.fileName||'原文预览',c.excerpt||c.needle||'',0,0);return}const tid=String(lastViewedTaskId||'');const store=taskLocalSources[tid];if(!store)return;const src=(store.files||[]).find(f=>f.name===c.fileName);if(!src||!src.text){alert('该文件暂无法预览');return}openSourceModal(c.fileName,src.text,c.matchIndex,c.matchLen)}
+function openSourceModal(title,fullText,matchIndex,matchLen){const mask=document.getElementById('sourceModalMask'),t=document.getElementById('sourceModalTitle'),body=document.getElementById('sourceModalBody');if(!mask||!t||!body)return;t.textContent=title||'原文预览';const text=String(fullText||'');const idx=Math.max(0,Math.min(Number(matchIndex||0),text.length));const len=Math.max(0,Number(matchLen||0));const ctx=800;const start=Math.max(0,idx-ctx);const end=Math.min(text.length,idx+(len>0?len:0)+ctx);const before=text.slice(start,idx);const hit=len>0?text.slice(idx,Math.min(text.length,idx+len)):'';const after=text.slice(Math.min(text.length,idx+(len>0?len:0)),end);const posInfo=len>0?`命中位置：${idx}（显示片段范围 ${start}-${end}）`:'未定位到具体位置';sourceModalPayload={title:title||'原文预览',fullText:text,matchIndex:idx,matchLen:len,start,end,before,hit,after,posInfo};body.innerHTML=len>0?`<div class="text-xs text-muted mb-2">${escapeHtmlBasic(posInfo)}</div><pre>${escapeHtmlBasic(before)}<mark>${escapeHtmlBasic(hit)}</mark>${escapeHtmlBasic(after)}</pre>`:`<div class="text-xs text-muted mb-2">${escapeHtmlBasic(posInfo)}</div><pre>${escapeHtmlBasic(text)}</pre>`;mask.style.display='flex'}
+function openSourceInNewWindow(){if(!sourceModalPayload)return;const p=sourceModalPayload;const w=window.open('','_blank','noopener,noreferrer,width=1080,height=760');if(!w){alert('浏览器拦截了新窗口');return}const ch=p.matchLen>0?`${escapeHtmlBasic(p.before)}<mark>${escapeHtmlBasic(p.hit)}</mark>${escapeHtmlBasic(p.after)}`:`${escapeHtmlBasic(p.fullText)}`;w.document.write(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>${escapeHtmlBasic(p.title)}</title><style>body{margin:0;padding:20px;background:hsl(0,0%,96%);color:hsl(210,12%,10%);font-family:Inter,sans-serif}.card{max-width:1100px;margin:0 auto;background:#fff;border:1px solid hsl(215,32%,91%);border-radius:12px;box-shadow:0 10px 28px rgba(15,23,42,.08)}.head{padding:12px 14px;border-bottom:1px solid hsl(215,32%,91%);font-weight:700}.meta{padding:10px 14px 0;font-size:12px;color:hsl(215,16%,47%)}pre{margin:10px 14px 14px;background:hsl(232,47%,10%);color:hsl(210,40%,98%);border-radius:8px;padding:14px;white-space:pre-wrap;word-break:break-word;line-height:1.7;font-family:Consolas,monospace}mark{background:hsl(50,100%,80%);color:hsl(210,12%,10%);border-radius:4px;padding:0 2px}</style></head><body><div class="card"><div class="head">${escapeHtmlBasic(p.title)}</div><div class="meta">${escapeHtmlBasic(p.posInfo||'')}</div><pre>${ch}</pre></div></body></html>`);w.document.close()}
+function closeSourceModal(e){if(e&&e.target&&e.target.id!=='sourceModalMask')return;const mask=document.getElementById('sourceModalMask');if(mask)mask.style.display='none'}
+
+// ── Drag & drop ──
+document.addEventListener("DOMContentLoaded",()=>{
+  const dropZone=document.getElementById('dropZone');
+  if(dropZone){dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.style.borderColor='var(--primary)';dropZone.style.background='hsl(257 48% 54% / 0.02)'});dropZone.addEventListener('dragleave',e=>{e.preventDefault();dropZone.style.borderColor='';dropZone.style.background=''});dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.style.borderColor='';dropZone.style.background='';if(e.dataTransfer.files&&e.dataTransfer.files.length>0)handleFileSelect({target:{files:e.dataTransfer.files}})})}
+  lucide.createIcons();
+  loadHistory();
+  startHistoryAutoRefresh();
+  renderQueue();
+  loadAPIConfigs();
+  fetch(API_BASE+'/api/classify/active').then(r=>r.json()).then(d=>{if(!d.active)return;currentClassifyTaskId=d.task_id;classifyResultsData=d.results||[];switchPage('classify');document.getElementById('classifyLaunchBtn').style.display='none';document.getElementById('classifyStopBtn').style.display='inline-flex';document.getElementById('classifyProgress').style.display='block';document.getElementById('classifyFileInfo').innerHTML=`<span style="color:var(--fg);">任务已恢复</span> — ${d.total} 条语音文本（${d.folder_name||'未命名'}）`;if(classifyResultsData.length){renderClassifyStats(classifyResultsData);renderClassifyTable(classifyResultsData)}document.getElementById('classifyResultTable').innerHTML=`<div style="padding:20px;text-align:center;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>恢复中... 共 ${d.total} 条语音文本</div>`;lucide.createIcons();setStep(2);pollClassifyProgress(d.task_id)});
+});
+
+// ── Classification ──
+// ── API Config Management ──
+let currentAPIConfigId=null;
+let apiConfigs=[];
+function loadAPIConfigs(){
+  try{apiConfigs=JSON.parse(localStorage.getItem('llm_api_configs')||'[]');}catch(e){apiConfigs=[]}
+  if(!Array.isArray(apiConfigs))apiConfigs=[];
+}
+function saveAPIConfig(){
+  const n=document.getElementById('apiName').value.trim();
+  const b=document.getElementById('apiBase').value.trim();
+  const k=document.getElementById('apiKey').value.trim();
+  const m=document.getElementById('apiModel').value.trim()||'qwen-plus';
+  if(!n||!b||!k){alert('名称、BASE_URL、API Key 必填');return}
+  apiConfigs.push({id:Date.now()+'',name:n,base_url:b,api_key:k,model:m});
+  localStorage.setItem('llm_api_configs',JSON.stringify(apiConfigs));
+  document.getElementById('apiName').value='';document.getElementById('apiBase').value='';
+  document.getElementById('apiKey').value='';document.getElementById('apiModel').value='qwen-plus';
+  renderAPIConfigList();
+}
+function deleteAPIConfig(id){
+  if(!confirm('确定删除此配置？'))return;
+  apiConfigs=apiConfigs.filter(c=>c.id!==id);
+  localStorage.setItem('llm_api_configs',JSON.stringify(apiConfigs));
+  if(currentAPIConfigId===id){
+    currentAPIConfigId=null;
+    localStorage.removeItem('last_api_config_id');
+    if(apiConfigs.length)selectAPIConfig(apiConfigs[0].id);
+  }
+  renderAPIConfigList();
+}
+function selectAPIConfig(id){
+  currentAPIConfigId=id;
+  localStorage.setItem('last_api_config_id',id);
+  const c=apiConfigs.find(x=>x.id===id);
+  if(c){document.getElementById('apiBase').value=c.base_url;document.getElementById('apiKey').value=c.api_key;document.getElementById('apiModel').value=c.model;}
+  renderAPIConfigList();
+}
+function clearAPIConfig(){
+  currentAPIConfigId=null;
+  localStorage.removeItem('last_api_config_id');
+  document.getElementById('apiBase').value='';document.getElementById('apiKey').value='';document.getElementById('apiModel').value='qwen-plus';
+  renderAPIConfigList();
+}
+function renderAPIConfigList(){
+  const box=document.getElementById('apiConfigList');
+  if(!apiConfigs.length){box.innerHTML='<div class="text-xs text-muted">暂无保存的配置，请在下方新建</div>';document.getElementById('apiCurrent').innerHTML='';return}
+  box.innerHTML=apiConfigs.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;margin-bottom:4px;border:1px solid ${currentAPIConfigId===c.id?'var(--primary)':'var(--border)'};border-radius:6px;background:${currentAPIConfigId===c.id?'hsl(142 71% 45% / 0.06)':'var(--bg)'};font-size:12px;gap:6px;">
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">📋 ${c.name} (${c.model})</span>
+    <span class="text-xs text-muted" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.base_url}</span>
+    <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="selectAPIConfig('${c.id}')">选用</button>
+    <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px;color:var(--destructive);" onclick="deleteAPIConfig('${c.id}')">✕</button>
+  </div>`).join('');
+  if(currentAPIConfigId){
+    const c=apiConfigs.find(x=>x.id===currentAPIConfigId);
+    document.getElementById('apiCurrent').innerHTML=c?`当前使用：${c.name} (${c.model}) <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px;color:var(--destructive);" onclick="clearAPIConfig()">清除选择</button>`:'';
+  }else{document.getElementById('apiCurrent').innerHTML=''}
+}
+function onLLMModeChange(){
+  const mode=document.querySelector('input[name="llmMode"]:checked').value;
+  document.getElementById('apiConfig').style.display=mode==='api'?'block':'none';
+  if(mode==='api'){
+    loadAPIConfigs();
+    renderAPIConfigList();
+    if(!currentAPIConfigId){
+      const lastId=localStorage.getItem('last_api_config_id');
+      const target=lastId&&apiConfigs.find(c=>c.id===lastId)?lastId:(apiConfigs.length?apiConfigs[0].id:null);
+      if(target)selectAPIConfig(target);
+    }
+  }
+}
+
+let classifyFile=null,currentClassifyTaskId=null,classifyPollTimer=null,classifyResultsData=[];
+function onClassifyFileSelect(e){const file=e.target.files[0];if(!file)return;classifyFile=file;const reader=new FileReader();reader.onload=function(){const lines=(reader.result||'').split('\n').filter(l=>l.trim());document.getElementById('classifyFileInfo').innerHTML=`<span style="color:var(--fg);">${file.name}</span> — ${lines.length} 条语音文本`};reader.readAsText(file);e.target.value=''}
+async function startBatchClassify(){if(!classifyFile){alert('请先选择文本文件');return}const btn=document.getElementById('classifyLaunchBtn'),icon=document.getElementById('classifyLaunchIcon'),textEl=document.getElementById('classifyLaunchText');btn.disabled=!0;textEl.innerText='提交中...';icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons();if(classifyPollTimer){clearInterval(classifyPollTimer);classifyPollTimer=null}const fd=new FormData();fd.append('files',classifyFile);fd.append('folder_name',document.getElementById('classifyTaskName').value||classifyFile.name);const mode=document.querySelector('input[name="llmMode"]:checked').value;fd.append('llm_mode',mode);if(mode==='api'&&currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c){fd.append('api_base',c.base_url);fd.append('api_key',c.api_key);fd.append('api_model',c.model);}}try{const res=await fetch(API_BASE+'/api/classify/batch',{method:'POST',body:fd});const data=await res.json();if(data.error){alert(data.error);resetClassifyBtn();return}currentClassifyTaskId=data.task_id;btn.style.display='none';document.getElementById('classifyStopBtn').style.display='inline-flex';document.getElementById('classifyProgress').style.display='block';document.getElementById('classifyResultTable').innerHTML=`<div style="padding:20px;text-align:center;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>分类中... 共 ${data.total_lines} 条语音文本</div>`;document.getElementById('classifyStats').innerHTML='';lucide.createIcons();pollClassifyProgress(currentClassifyTaskId);setStep(2)}catch(e){alert('启动分类任务失败');resetClassifyBtn()}}
+function pollClassifyProgress(taskId){if(classifyPollTimer)clearInterval(classifyPollTimer);classifyPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/classify/progress/'+taskId);const data=await res.json();if(!data||data.status==='not_found'){clearInterval(classifyPollTimer);return}const completed=data.completed||0,total=data.total||0,pct=total>0?Math.round(completed/total*100):0;document.getElementById('progressFill').style.width=pct+'%';document.getElementById('progressText').innerText=`${completed} / ${total} (${pct}%)`;if(data.results&&data.results.length>0){classifyResultsData=data.results;renderClassifyStats(data.results);renderClassifyTable(data.results)}if(data.status==='completed'||data.status==='failed'){clearInterval(classifyPollTimer);if(data.status==='completed'){document.getElementById('progressText').innerText=`完成！共 ${completed} 条`;document.getElementById('classifyDownloadBtn').style.display='inline-flex';setStep(3)}resetClassifyBtn()}if(data.status==='cancelled'){clearInterval(classifyPollTimer);document.getElementById('progressText').innerText=`已停止（已处理 ${completed} 条）`;setStep(1);resetClassifyBtn()}}catch(e){clearInterval(classifyPollTimer)}},1500)}
+function renderClassifyStats(results){
+const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划','噪声'];
+let h='';
+for(const c of CATS){
+  const items=results.filter(r=>r.label===c&&r.status==='verified');
+  if(items.length) h+=`<div class="stat-card"><div class="num" style="color:${catColor(c)};">${items.length}</div><div class="label">${c}</div></div>`;
+}
+const conflicts=results.filter(r=>r.status==='conflict');
+if(conflicts.length) h+=`<div class="stat-card" style="border:2px solid #dc2626;"><div class="num" style="color:#dc2626;">⚠${conflicts.length}</div><div class="label" style="color:#dc2626;">冲突</div></div>`;
+if(!h) h=`<div class="stat-card"><div class="num">${results.length}</div><div class="label">总计</div></div>`;
+document.getElementById('classifyStats').innerHTML=h;
+}
+function catColor(c){
+const m={'指令':'#dc2626','情报':'#2563eb','态势':'#ea580c','火力':'#9333ea','补给':'#16a34a','通信':'#0891b2','敌情':'#ca8a04','计划':'#6b7280','噪声':'#9ca3af'};
+return m[c]||'#6b7280';
+}
+function catBadge(c){
+const m={'指令':'badge-destructive','情报':'badge-primary','态势':'badge-warning','火力':'badge-destructive','补给':'badge-success','通信':'badge-primary','敌情':'badge-warning','计划':'badge-muted','噪声':'badge-muted'};
+return m[c]||'badge-muted';
+}
+function renderClassifyTable(results){
+const show=results.slice(-30);
+const h=`<table class="data-table"><thead><tr><th>#</th><th>原文</th><th>分类</th><th>置信度</th><th>证据</th></tr></thead><tbody>`;
+const rows=show.map(r=>{
+let tag=catBadge(r.label||'');
+let ccl='';const c=parseFloat(r.confidence)||0;
+if(c>=0.8)ccl='color:var(--success)';else if(c>=0.5)ccl='color:var(--warning)';else ccl='color:var(--destructive)';
+const ev=(r.evidence||[]).slice(0,2).join(', ');
+return`<tr><td>${r.line_no||''}</td><td title="${escapeHtml(r.original||'')}">${escapeHtml((r.original||'').substring(0,40))}</td><td><span class="badge ${tag}">${escapeHtml(r.label||'')}</span></td><td style="font-weight:700;${ccl}">${r.confidence}</td><td class="text-xs text-muted" title="${escapeHtml(ev)}">${escapeHtml(ev.substring(0,30))}</td></tr>`;
+}).join('');
+document.getElementById('classifyResultTable').innerHTML=h+rows+'</tbody></table>'+(results.length>30?`<div class="text-xs text-muted" style="text-align:center;padding:8px;">显示最近30条，共${results.length}条</div>`:'');
+}
+function downloadClassifyReport(){if(!currentClassifyTaskId)return;window.open(API_BASE+'/api/classify/download/'+currentClassifyTaskId,'_blank')}
+function resetClassifyBtn(){const btn=document.getElementById('classifyLaunchBtn'),icon=document.getElementById('classifyLaunchIcon');btn.style.display='block';btn.disabled=!1;document.getElementById('classifyLaunchText').innerText='启动分类';icon.setAttribute('data-lucide','play');icon.classList.remove('loading-spin');document.getElementById('classifyStopBtn').style.display='none';setStep(1);lucide.createIcons()}
+async function stopBatchClassify(){if(!currentClassifyTaskId)return;document.getElementById('progressText').innerText='正在停止...';document.getElementById('classifyStopBtn').disabled=!0;try{await fetch(API_BASE+'/api/classify/cancel/'+currentClassifyTaskId,{method:'POST'})}catch(e){}pollClassifyProgress(currentClassifyTaskId)}
+function escapeHtml(str){if(!str)return'';return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function setStep(s){
+  document.querySelectorAll('.step-dot').forEach((el,i)=>{el.classList.remove('done','active');if(i<s-1)el.classList.add('done');if(i===s-1)el.classList.add('active')});
+  document.querySelectorAll('.step-line').forEach((el,i)=>{el.classList.toggle('done',i<s-1)});
+  document.querySelectorAll('.step-label').forEach((el,i)=>{el.classList.remove('done','active');if(i<s-1)el.classList.add('done');if(i===s-1)el.classList.add('active')});
+}
+</script>
+
+</body>
+</html>
