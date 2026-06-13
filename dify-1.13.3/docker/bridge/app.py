@@ -634,22 +634,34 @@ _extract_lock = threading.Lock()
 
 
 def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str],
-                      classified_results: list[dict],
                       api_base: str, api_key: str, api_model: str) -> None:
-    """Background thread: filter by labels → LLM extract → LLM verify."""
+    """从文本标签解析 → 过滤 → LLM提取 → LLM检验。"""
     try:
         with _extract_lock:
-            _extract_tasks[task_id] = {"status": "extracting", "stage": "过滤中"}
+            _extract_tasks[task_id] = {"status": "extracting", "stage": "解析标签中"}
 
-        filtered = [(r["line_no"], r["preprocessed"] or r["original"])
-                    for r in classified_results
-                    if r.get("label") in selected_labels]
+        # 解析每行末尾标签，例如  "报告指挥所...（态势）"
+        parsed: list[tuple[str, str]] = []
+        for i, line in enumerate(lines):
+            m = re.search(r'（(\S+)）\s*$', line)
+            if m:
+                label = m.group(1)
+                text = re.sub(r'（\S+）\s*$', '', line)
+                parsed.append((text, label))
+            else:
+                parsed.append((line, "未分类"))
+        logger.info("Extract %s: parsed %d lines, %d with labels",
+                     task_id, len(lines), len([p for p in parsed if p[1] != "未分类"]))
+
+        # 过滤选中标签
+        filtered = [(i+1, t) for i, (t, l) in enumerate(parsed) if l in selected_labels and l != "噪声"]
         if not filtered:
             with _extract_lock:
                 _extract_tasks[task_id] = {"status": "failed", "error": "选中的标签下无匹配文本"}
             return
         filtered_text = "\n".join(f"[行{n}] {t}" for n, t in filtered)
 
+        # 提取
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "extracting", "stage": "提取关键要素中"}
         labels_str = "、".join(selected_labels)
@@ -660,15 +672,15 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
                 _extract_tasks[task_id] = {"status": "failed", "error": extract_result}
             return
 
+        # 检验
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "verifying", "stage": "检验遗漏中"}
-        all_text = "\n".join(
-            f"[行{r['line_no']}] {r['original']}" for r in classified_results if r.get("label") != "空行"
-        )
-        verify_prompt = VERIFY_PROMPT.replace("{extracted_summary}", extract_result).replace("{all_lines}", all_text)
+        all_text = "\n".join(f"[行{i+1}] {re.sub(r'（\S+）\s*$', '', l)}" for i, l in enumerate(lines) if l.strip())
+        verify_prompt = VERIFY_PROMPT.replace("{extracted_summary}", extract_result).replace("{all_lines}", all_text).replace("{labels}", labels_str)
         verify_result = _call_api_simple(api_base, api_key, api_model, verify_prompt)
 
         now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        final = verify_result if not verify_result.startswith('[错误]') else extract_result
         report = f"""## 关键要素提取报告
 
 - 处理时间：{now}
@@ -678,15 +690,7 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
 
 ---
 
-### 📋 提取结果
-
-{extract_result}
-
----
-
-### 🔍 检验结果
-
-{verify_result if not verify_result.startswith('[错误]') else f'(检验异常: {verify_result})'}
+{final}
 """
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "completed", "report": report,
@@ -715,20 +719,24 @@ def _call_api_simple(api_base: str, api_key: str, api_model: str, prompt: str) -
 
 
 @app.post("/api/extract/batch")
-def extract_batch():
+@app.post("/api/extract/extract")
+def extract_run():
+    """上传文件+选中标签 → 解析标签 → 过滤 → LLM提取 → LLM检验。"""
     files = request.files.getlist("files")
-    llm_mode = (request.form.get("llm_mode") or "local").strip()
+    labels_str = (request.form.get("labels") or "").strip()
+    labels = [l.strip() for l in labels_str.split(",") if l.strip()] if labels_str else []
     api_base = (request.form.get("api_base") or "").strip()
     api_key = (request.form.get("api_key") or "").strip()
     api_model = (request.form.get("api_model") or "qwen-plus").strip()
 
     if not files:
         return jsonify({"error": "未上传文件"}), 400
+    if not labels:
+        return jsonify({"error": "未选择标签"}), 400
 
+    # 读取文件、解析每行标签
     all_lines: list[str] = []
-    original_filename = "unknown"
     for f in files:
-        original_filename = f.filename or "unknown"
         try:
             content = f.read().decode("utf-8", errors="replace")
             lines = split_text_to_lines(content)
@@ -739,71 +747,14 @@ def extract_batch():
     if not all_lines:
         return jsonify({"error": "文件中未检测到有效文本内容"}), 400
 
-    _, keyword_categories = _load_keywords()
-    if not keyword_categories:
-        return jsonify({"error": "未找到预设关键词词典"}), 400
-
     task_id = str(uuid.uuid4())
     threading.Thread(
-        target=_run_extract_classify,
-        args=(task_id, all_lines, keyword_categories, original_filename,
-              llm_mode, api_base, api_key, api_model),
+        target=_run_extract_task,
+        args=(task_id, all_lines, labels, api_base, api_key, api_model),
         daemon=True,
     ).start()
 
-    return jsonify({"task_id": task_id, "total_lines": len(all_lines), "original_filename": original_filename})
-
-
-def _run_extract_classify(task_id: str, lines: list[str], keyword_categories: dict,
-                          original_filename: str, llm_mode: str,
-                          api_base: str, api_key: str, api_model: str) -> None:
-    try:
-        classifier = BatchClassifier(
-            dify_api_url=DIFY_API_URL,
-            dify_api_key=DIFY_CLASSIFY_API_KEY or DIFY_API_KEY,
-            keyword_categories=keyword_categories,
-            llm_mode=llm_mode,
-            api_base=api_base,
-            api_key=api_key,
-            api_model=api_model,
-        )
-        results: list[dict] = []
-        with _extract_lock:
-            _extract_tasks[task_id] = {"status": "classifying", "total": len(lines), "results": results}
-
-        for progress in classifier.classify_lines(lines, task_id):
-            r = progress["result"]
-            results.append(r)
-            with _extract_lock:
-                _extract_tasks[task_id] = {"status": "classifying", "total": len(lines),
-                                            "results": list(results), "completed": len(results)}
-
-        with _extract_lock:
-            _extract_tasks[task_id] = {"status": "classified", "total": len(lines),
-                                        "results": results, "original_filename": original_filename}
-        logger.info("Extract classify %s: completed, %d lines", task_id, len(results))
-    except Exception as exc:
-        logger.exception("Extract classify %s: failed", task_id)
-        with _extract_lock:
-            _extract_tasks[task_id] = {"status": "failed", "error": str(exc)}
-
-
-@app.post("/api/extract/extract")
-def extract_run():
-    data = request.get_json(force=True)
-    task_id = (data or {}).get("task_id", "")
-    labels = (data or {}).get("labels", [])
-    api_base = (data or {}).get("api_base", "")
-    api_key = (data or {}).get("api_key", "")
-    api_model = (data or {}).get("api_model", "qwen-plus")
-
-    if not task_id or not labels:
-        return jsonify({"error": "缺少 task_id 或 labels"}), 400
-
-    with _extract_lock:
-        info = _extract_tasks.get(task_id)
-    if not info or info["status"] != "classified":
-        return jsonify({"error": "任务未完成分类或不存在"}), 400
+    return jsonify({"task_id": task_id, "total_lines": len(all_lines)})
 
     results = info.get("results", [])
     threading.Thread(

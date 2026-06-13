@@ -1017,13 +1017,14 @@ select.input { cursor: pointer; }
           <button class="btn btn-outline btn-sm" onclick="document.getElementById('extractFileInput').click()">选择文件</button>
         </div>
         <input type="file" id="extractFileInput" accept=".txt" style="display:none;" onchange="onExtractFileSelect(event)">
-        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;gap:10px;">
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
           <div class="dropzone" id="extractDropZone" onclick="document.getElementById('extractFileInput').click()"
-               style="flex:none;padding:28px 16px;cursor:pointer;">
-            <p class="text-sm text-muted" style="text-align:center;">拖拽 txt 文件到此处<br>或点击选择</p>
+               style="flex:1;overflow-y:auto;cursor:pointer;">
+            <div id="extractPlaceholder" class="dropzone-placeholder">
+              <p>拖拽 txt 文件到此处<br>或点击选择</p>
+            </div>
+            <div id="extractFileList"></div>
           </div>
-          <div id="extractFileInfo" class="text-xs text-muted"></div>
-          <div id="extractPreview" style="flex:1;overflow-y:auto;font-size:11px;background:var(--muted);border-radius:var(--radius-sm);padding:8px;display:none;"></div>
         </div>
       </div>
 
@@ -1065,7 +1066,6 @@ select.input { cursor: pointer; }
             </div>
           </div>
           <!-- Classify button -->
-          <button class="btn btn-primary btn-block" id="extractClassifyBtn" onclick="startExtractClassify()">启动分类标注</button>
         </div>
       </div>
 
@@ -1395,6 +1395,7 @@ function selectAPIConfig(id){
          const em=document.getElementById('apiModel');if(em)em.value=c.model;}
   renderAPIConfigList();
   if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
+  if(typeof renderExtractAPIConfigList==='function')renderExtractAPIConfigList();
 }
 function clearAPIConfig(){
   currentAPIConfigId=null;
@@ -1404,6 +1405,7 @@ function clearAPIConfig(){
   const em=document.getElementById('apiModel');if(em)em.value='qwen-plus';
   renderAPIConfigList();
   if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
+  if(typeof renderExtractAPIConfigList==='function')renderExtractAPIConfigList();
 }
 function renderAPIConfigList(){
   const box=document.getElementById('apiConfigList');
@@ -1486,7 +1488,8 @@ function setStep(s){
 }
 // --- 关键要素提取 ---
 let extractFile=null,extractTaskId=null,extractPollTimer=null,extractResults=null;
-function onExtractFileSelect(e){const f=e.target.files[0];if(!f)return;extractFile=f;const r=new FileReader();r.onload=function(){const lines=(r.result||'').split('\n').filter(l=>l.trim());document.getElementById('extractFileInfo').innerHTML=`<span style="color:var(--fg);font-weight:600;">${f.name}</span> — ${lines.length} 条`;const pv=document.getElementById('extractPreview');pv.style.display='block';pv.innerHTML=lines.slice(0,10).map((l,i)=>`<div style="padding:2px 0;border-bottom:1px solid var(--border);">${i+1}. ${escapeHtml(l.substring(0,80))}</div>`).join('')+(lines.length>10?`<div class="text-muted" style="padding:4px;">...共${lines.length}条</div>`:'')};r.readAsText(f);e.target.value=''}
+function onExtractFileSelect(e){const f=e.target.files[0];if(!f)return;extractFile=f;document.getElementById('extractPlaceholder').style.display='none';document.getElementById('extractFileList').innerHTML=`<div class="file-item"><span>${f.name} (${f.size} bytes)</span><i data-lucide="x" onclick="removeExtractFile()" style="color:var(--destructive);cursor:pointer;"></i></div>`;lucide.createIcons();e.target.value=''}
+function removeExtractFile(){extractFile=null;document.getElementById('extractFileList').innerHTML='';document.getElementById('extractPlaceholder').style.display='block';document.getElementById('extractResultContainer').innerHTML='等待分类完成后选择标签提取...';}
 function _getExtractLlmMode(){return document.querySelector('input[name="extractLlmMode"]:checked')?.value||'api'}
 function _getExtractApiConfig(){const m=_getExtractLlmMode();if(m==='api'&&currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c)return{api_base:c.base_url,api_key:c.api_key,api_model:c.model}}return{api_base:'',api_key:'',api_model:'qwen-plus'}}
 function onExtractLLMModeChange(){const m=_getExtractLlmMode();document.getElementById('extractApiConfig').style.display=m==='api'?'block':'none';if(m==='api'){loadAPIConfigs();renderExtractAPIConfigList();if(!currentAPIConfigId){const lid=localStorage.getItem('last_api_config_id');const t=lid&&apiConfigs.find(c=>c.id===lid)?lid:(apiConfigs.length?apiConfigs[0].id:null);if(t)selectAPIConfig(t)}}}
@@ -1496,28 +1499,6 @@ function _setExtractStep(s){
   for(let i=1;i<=4;i++){const d=document.getElementById('extStepDot'+i);if(d){d.classList.remove('done','active');if(i<s)d.classList.add('done');if(i===s)d.classList.add('active')}}
   for(let i=1;i<=3;i++){const l=document.getElementById('extStepLine'+i);if(l)l.classList.toggle('done',i<s)}
   for(let i=1;i<=4;i++){const lbl=document.getElementById('extStepLabel'+i);if(lbl){lbl.classList.remove('done','active');if(i<s)lbl.classList.add('done');if(i===s)lbl.classList.add('active')}}
-}
-async function startExtractClassify(){
-  if(!extractFile){alert('请先选择文件');return}
-  const btn=document.getElementById('extractClassifyBtn');btn.disabled=!0;btn.innerText='分类中...';
-  document.getElementById('extractResultContainer').innerHTML='<div style="text-align:center;padding:40px;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>分类标注中...</div>';lucide.createIcons();
-  _setExtractStep(2);
-  const fd=new FormData();fd.append('files',extractFile);fd.append('llm_mode',_getExtractLlmMode());
-  const cfg=_getExtractApiConfig();fd.append('api_base',cfg.api_base);fd.append('api_key',cfg.api_key);fd.append('api_model',cfg.api_model);
-  try{const res=await fetch(API_BASE+'/api/extract/batch',{method:'POST',body:fd});const data=await res.json();
-  if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='启动分类标注';return}
-  extractTaskId=data.task_id;pollExtractClassify();}catch(e){alert('启动失败');btn.disabled=!1;btn.innerText='启动分类标注'}
-}
-function pollExtractClassify(){
-  if(extractPollTimer)clearInterval(extractPollTimer);
-  extractPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/extract/progress/'+extractTaskId);const data=await res.json();
-  if(data.status==='classified'){clearInterval(extractPollTimer);extractResults=data.results||[];
-  renderExtractLabels(extractResults);_setExtractStep(3);
-  document.getElementById('extractClassifyBtn').style.display='none';
-  document.getElementById('extractResultContainer').innerHTML='<div class="text-sm text-muted" style="padding:20px;text-align:center;">分类完成，请选择标签后点击"开始提取"</div>'}
-  else if(data.status==='failed'){clearInterval(extractPollTimer);document.getElementById('extractClassifyBtn').disabled=!1;document.getElementById('extractClassifyBtn').innerText='启动分类标注';document.getElementById('extractResultContainer').innerText='分类失败：'+(data.error||'未知')}
-  else if(data.status==='classifying'){document.getElementById('extractClassifyBtn').innerText=`分类中... ${data.completed||0}/${data.total||0}`}
-  }catch(e){clearInterval(extractPollTimer)}},1500);
 }
 let extractSelectedLabels=new Set();
 const EXTRACT_COLORS={指令:'#ef4444',情报:'#3b82f6',态势:'#8b5cf6',火力:'#f59e0b',补给:'#10b981',通信:'#6366f1',敌情:'#dc2626',计划:'#06b6d4',噪声:'#6b7280'};
@@ -1547,35 +1528,24 @@ function _updateExtractSelectedLine(){
   document.getElementById('extractLabelSelected').innerHTML=arr.length?
     '已选：'+arr.map(l=>`<span style="color:${EXTRACT_COLORS[l]};font-weight:600;">${l}</span>`).join('、'):'未选择标签';
 }
-function renderExtractLabels(results){
-  extractResults=results;
-  const counts={};results.forEach(r=>{const l=r.label||'未分类';counts[l]=(counts[l]||0)+1});
-  extractLabelCounts=counts;
-  const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划','噪声'];
-  document.getElementById('extractLabelBtns').innerHTML=CATS.filter(c=>c!=='噪声').map(c=>{
-    const n=counts[c]||0;
-    const disabled=n===0?' disabled style="opacity:0.3;cursor:not-allowed;"':'';
-    const active=extractSelectedLabels.has(c)?' active':'';
-    return`<button class="extract-tag-btn${active}" id="extTag_${c}" onclick="onExtractLabelToggle('${c}')"${disabled}>${c} (${n}条)</button>`;
-  }).join('');
-  _updateExtractSelectedLine();
-}
 async function startExtract(){
+  if(!extractFile){alert('请先选择文件');return}
   const labels=[...extractSelectedLabels];
   if(!labels.length){alert('请至少选择一个标签');return}
   const btn=document.getElementById('extractLaunchBtn');btn.disabled=!0;btn.innerText='提取中...';
-  document.getElementById('extractProgress').style.display='block';_setExtractStep(4);
-  const cfg=_getExtractApiConfig();
-  try{const res=await fetch(API_BASE+'/api/extract/extract',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({task_id:extractTaskId,labels,...cfg})});const data=await res.json();
+  document.getElementById('extractProgress').style.display='block';_setExtractStep(2);
+  document.getElementById('extractResultContainer').innerHTML='<div style="text-align:center;padding:40px;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>提取中...</div>';lucide.createIcons();
+  const fd=new FormData();fd.append('files',extractFile);fd.append('labels',labels.join(','));
+  const cfg=_getExtractApiConfig();fd.append('api_base',cfg.api_base);fd.append('api_key',cfg.api_key);fd.append('api_model',cfg.api_model);
+  try{const res=await fetch(API_BASE+'/api/extract/extract',{method:'POST',body:fd});const data=await res.json();
   if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='开始提取';return}
-  pollExtractProgress();}catch(e){alert('提取失败');btn.disabled=!1;btn.innerText='开始提取'}
+  extractTaskId=data.task_id;pollExtractProgress();}catch(e){alert('提取失败');btn.disabled=!1;btn.innerText='开始提取'}
 }
 function pollExtractProgress(){
   if(extractPollTimer)clearInterval(extractPollTimer);
   extractPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/extract/progress/'+extractTaskId);const data=await res.json();
   if(data.status==='completed'){clearInterval(extractPollTimer);
-    document.getElementById('extractProgress').style.display='none';
+    document.getElementById('extractProgress').style.display='none';_setExtractStep(3);
     document.getElementById('extractLaunchBtn').innerText='开始提取';document.getElementById('extractLaunchBtn').disabled=!1;
     document.getElementById('extractResultContainer').innerHTML=marked.parse(data.report||'');
     document.getElementById('extractDownloadBtn').style.display='inline-flex';}
@@ -1586,7 +1556,7 @@ function pollExtractProgress(){
   }catch(e){clearInterval(extractPollTimer)}},2000);
 }
 function downloadExtractReport(){if(!extractTaskId)return;window.open(API_BASE+'/api/extract/download/'+extractTaskId,'_blank')}
-document.addEventListener('DOMContentLoaded',function(){initExtractLabelBtns()});
+document.addEventListener('DOMContentLoaded',function(){initExtractLabelBtns();onExtractLLMModeChange()});
 
 </script>
 
