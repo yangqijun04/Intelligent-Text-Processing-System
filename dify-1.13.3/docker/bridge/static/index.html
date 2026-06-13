@@ -174,6 +174,16 @@ body {
 
 /* ── Two Column Grid ── */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: start; }
+.extract-tag-btn {
+  padding: 6px 10px; border: 2px solid var(--border); border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer; background: var(--bg);
+  transition: all 0.15s; text-align: center;
+}
+.extract-tag-btn:hover:not(:disabled) { filter: brightness(0.95); }
+.extract-tag-btn.active {
+  background: var(--primary); color: #fff; border-color: var(--primary);
+}
 
 /* ── Buttons ── */
 .btn {
@@ -618,6 +628,9 @@ select.input { cursor: pointer; }
       <div class="sidebar-item" data-page="classify" onclick="switchPage('classify')">
         <i data-lucide="scan-search"></i> 语音文本分类
       </div>
+      <div class="sidebar-item" data-page="extract" onclick="switchPage('extract')">
+        <i data-lucide="list-checks"></i> 关键要素提取
+      </div>
       <div class="sidebar-item" data-page="analyze" onclick="switchPage('analyze')">
         <i data-lucide="brain-circuit"></i> 智能文本分析
       </div>
@@ -846,7 +859,7 @@ select.input { cursor: pointer; }
       </div>
     </div>
 
-    <div class="grid-2" style="flex:1; min-height:0;">
+    <div class="grid-3" style="flex:1; min-height:0;">
       <!-- 左：输入 -->
       <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
         <div class="card-header">
@@ -863,7 +876,7 @@ select.input { cursor: pointer; }
         <input type="file" id="fileInput" multiple onchange="handleFileSelect(event)" style="display:none">
         <input type="file" id="folderInput" webkitdirectory directory allowdirs multiple onchange="handleFileSelect(event)" style="display:none">
         <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
-          <div class="dropzone" id="dropZone" style="flex:1;overflow-y:auto;">
+          <div class="dropzone" id="dropZone" style="flex:1;overflow-y:auto;cursor:pointer;" onclick="document.getElementById('fileInput').click()">
             <div id="placeholder" class="dropzone-placeholder">
               <i data-lucide="inbox" style="width:36px;height:36px;margin-bottom:10px;opacity:0.2;"></i>
               <p>拖拽文件或文件夹到此处</p>
@@ -873,14 +886,36 @@ select.input { cursor: pointer; }
         </div>
       </div>
 
-      <!-- 右：配置+结果 -->
+      <!-- 中：配置 -->
       <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
-        <div class="card-header">运行配置与输出</div>
-        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;gap:12px;">
+        <div class="card-header">运行配置</div>
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow-y:auto;gap:10px;">
           <!-- RAG -->
           <div class="flex-between" style="padding:10px 12px;background:var(--muted);border-radius:var(--radius-sm);">
             <span class="text-sm">开启本地知识库增强 (RAG)</span>
             <label class="switch"><input type="checkbox" id="ragSwitch"><span class="switch-slider"></span></label>
+          </div>
+          <!-- LLM Mode -->
+          <div style="display:flex; gap:18px; align-items:center;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="radio" name="analyzeLlmMode" value="local" checked onchange="onAnalyzeLLMModeChange()">
+              <span class="text-sm">本地模型</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="radio" name="analyzeLlmMode" value="api" onchange="onAnalyzeLLMModeChange()">
+              <span class="text-sm">AI API</span>
+            </label>
+          </div>
+          <div id="analyzeApiConfig" style="display:none;">
+            <div id="analyzeApiConfigList" style="margin-bottom:8px; max-height:80px; overflow-y:auto;"></div>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+              <input class="input" id="analyzeApiName" placeholder="配置名称" style="flex:1; min-width:80px; font-size:12px;">
+              <input class="input" id="analyzeApiBase" placeholder="BASE_URL" style="flex:2; min-width:160px; font-size:12px;">
+              <input class="input" id="analyzeApiKey" type="password" placeholder="API Key" style="flex:2; min-width:140px; font-size:12px;">
+              <input class="input" id="analyzeApiModel" placeholder="模型名" style="flex:1; min-width:80px; font-size:12px;" value="qwen-plus">
+              <button class="btn btn-primary btn-sm" onclick="saveAnalyzeAPIConfig()" style="flex-shrink:0; font-size:12px;">保存</button>
+            </div>
+            <div id="analyzeApiCurrent" class="text-xs text-muted mt-2"></div>
           </div>
           <!-- Preset buttons -->
           <div class="flex-center gap-2">
@@ -898,15 +933,22 @@ select.input { cursor: pointer; }
             <div id="queueList" class="text-xs text-muted mt-2"></div>
           </div>
           <!-- Instruction -->
-          <textarea class="input" id="mainCmd" placeholder="在此输入自定义分析指令..." style="flex:1;min-height:80px;"></textarea>
+          <textarea class="input" id="mainCmd" placeholder="在此输入自定义分析指令..." style="flex:1;min-height:60px;"></textarea>
           <!-- Launch -->
           <button class="btn btn-primary btn-lg btn-block" id="launchBtn" onclick="launchEngine()">
             <i data-lucide="play" id="launchIcon"></i> <span id="launchText">启动智能处理</span>
           </button>
+        </div>
+      </div>
+
+      <!-- 右：输出 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">系统输出</div>
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;gap:8px;">
           <!-- Result -->
           <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;">
             <div class="flex-between mb-2">
-              <span class="text-sm" style="font-weight:600;">系统输出结果</span>
+              <span class="text-sm" style="font-weight:600;">分析结果</span>
               <div class="flex-center gap-2">
                 <label class="switch" style="transform:scale(0.8);transform-origin:right center;">
                   <input type="checkbox" id="quoteSwitch" onchange="toggleQuoteView(this.checked)"><span class="switch-slider"></span>
@@ -920,7 +962,124 @@ select.input { cursor: pointer; }
           <!-- History -->
           <div>
             <div class="text-sm" style="font-weight:600;margin-bottom:6px;">历史记录（最近10条）</div>
-            <div id="historyList" style="max-height:120px;overflow-y:auto;font-size:11px;"></div>
+            <div id="historyList" style="max-height:80px;overflow-y:auto;font-size:11px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PAGE: 关键要素提取 ═══ -->
+  <div class="page" id="page-extract">
+    <div class="page-header">
+      <div class="page-header-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="2" width="14" height="16" rx="2" stroke="hsl(257 48% 54%)" stroke-width="1.8" fill="none"/>
+          <line x1="7" y1="6" x2="14" y2="6" stroke="hsl(257 48% 54%)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="7" y1="10" x2="14" y2="10" stroke="hsl(257 48% 54%)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="7" y1="14" x2="11" y2="14" stroke="hsl(257 48% 54%)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h2>关键要素提取</h2>
+        <p>分类标注 → 选择标签 → AI提取 → 遗漏检验</p>
+      </div>
+    </div>
+
+    <!-- StepIndicator -->
+    <div style="display:flex; align-items:flex-start; gap:0; flex-shrink:0;" id="extractStepInd">
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot done" id="extStepDot1"><span>1</span></div>
+        <div class="step-line" id="extStepLine1"></div>
+        <span class="step-label" id="extStepLabel1">上传文件</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot" id="extStepDot2"><span>2</span></div>
+        <div class="step-line" id="extStepLine2"></div>
+        <span class="step-label" id="extStepLabel2">分类完成</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot" id="extStepDot3"><span>3</span></div>
+        <div class="step-line" id="extStepLine3"></div>
+        <span class="step-label" id="extStepLabel3">选择标签</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+        <div class="step-dot" id="extStepDot4"><span>4</span></div>
+        <span class="step-label" id="extStepLabel4">提取结果</span>
+      </div>
+    </div>
+
+    <div class="grid-3" style="flex:1; min-height:0;">
+      <!-- 左：上传 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">
+          <span>📂 上传文件</span>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('extractFileInput').click()">选择文件</button>
+        </div>
+        <input type="file" id="extractFileInput" accept=".txt" style="display:none;" onchange="onExtractFileSelect(event)">
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;gap:10px;">
+          <div class="dropzone" id="extractDropZone" onclick="document.getElementById('extractFileInput').click()"
+               style="flex:none;padding:28px 16px;cursor:pointer;">
+            <p class="text-sm text-muted" style="text-align:center;">拖拽 txt 文件到此处<br>或点击选择</p>
+          </div>
+          <div id="extractFileInfo" class="text-xs text-muted"></div>
+          <div id="extractPreview" style="flex:1;overflow-y:auto;font-size:11px;background:var(--muted);border-radius:var(--radius-sm);padding:8px;display:none;"></div>
+        </div>
+      </div>
+
+      <!-- 中：配置 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">⚙ 配置</div>
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow-y:auto;gap:10px;">
+          <!-- LLM Mode -->
+          <div style="display:flex; gap:18px; align-items:center;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="radio" name="extractLlmMode" value="local" onchange="onExtractLLMModeChange()">
+              <span class="text-sm">本地模型</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="radio" name="extractLlmMode" value="api" checked onchange="onExtractLLMModeChange()">
+              <span class="text-sm">AI API</span>
+            </label>
+          </div>
+          <div id="extractApiConfig">
+            <div id="extractApiConfigList" style="margin-bottom:8px; max-height:80px; overflow-y:auto;"></div>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+              <input class="input" id="extractApiName" placeholder="名称" style="flex:1;min-width:60px;font-size:11px;">
+              <input class="input" id="extractApiBase" placeholder="BASE_URL" style="flex:2;min-width:140px;font-size:11px;">
+              <input class="input" id="extractApiKey" type="password" placeholder="API Key" style="flex:2;min-width:120px;font-size:11px;">
+              <input class="input" id="extractApiModel" placeholder="模型" style="flex:1;min-width:60px;font-size:11px;" value="qwen-plus">
+              <button class="btn btn-primary btn-sm" onclick="saveExtractAPIConfig()" style="flex-shrink:0;font-size:11px;">保存</button>
+            </div>
+            <div id="extractApiCurrent" class="text-xs text-muted mt-2"></div>
+          </div>
+          <!-- Label buttons -->
+          <div id="extractLabelSection">
+            <div class="text-sm" style="font-weight:600;margin-bottom:4px;">选择提取标签</div>
+            <div id="extractLabelBtns" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;"></div>
+            <div id="extractLabelSelected" class="text-xs" style="margin-top:4px;color:var(--primary);"></div>
+            <button class="btn btn-primary btn-block" id="extractLaunchBtn" onclick="startExtract()" style="margin-top:8px;">开始提取</button>
+            <div id="extractProgress" style="display:none;text-align:center;padding:8px;">
+              <div class="progress-bar"><div class="progress-fill" id="extractProgressFill" style="width:0;"></div></div>
+              <div class="text-xs text-muted mt-2" id="extractProgressText"></div>
+            </div>
+          </div>
+          <!-- Classify button -->
+          <button class="btn btn-primary btn-block" id="extractClassifyBtn" onclick="startExtractClassify()">启动分类标注</button>
+        </div>
+      </div>
+
+      <!-- 右：结果 -->
+      <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;">
+        <div class="card-header">
+          <span>📋 提取结果</span>
+          <button class="btn btn-outline btn-sm" id="extractDownloadBtn" onclick="downloadExtractReport()" style="display:none;">
+            <i data-lucide="download" style="width:13px;"></i> 下载
+          </button>
+        </div>
+        <div class="card-body" style="flex:1;min-height:0;overflow:hidden;">
+          <div class="result-view" id="extractResultContainer" style="background:var(--muted);border-radius:var(--radius-sm);height:100%;">
+            等待分类完成后选择标签提取...
           </div>
         </div>
       </div>
@@ -1033,9 +1192,14 @@ select.input { cursor: pointer; }
     <div class="card" style="display:flex;flex-direction:column;">
       <div class="card-header">
         <span>分类结果</span>
+        <span style="display:flex;align-items:center;gap:6px;">
+        <button class="btn btn-outline btn-sm" id="classifyPreprocessBtn" onclick="downloadPreprocessedTxt()" style="display:none;">
+          <i data-lucide="file-text" style="width:14px;"></i> 预处理文本
+        </button>
         <button class="btn btn-outline btn-sm" id="classifyDownloadBtn" onclick="downloadClassifyReport()" style="display:none;">
           <i data-lucide="download" style="width:14px;"></i> 下载报告
         </button>
+        </span>
       </div>
       <div class="card-body no-padding">
         <div id="classifyResultTable" class="text-sm text-muted" style="text-align:center;">
@@ -1138,16 +1302,17 @@ function toggleFolderById(gid){const g=document.getElementById(gid);const c=docu
 function setCmd(t){document.getElementById('mainCmd').value=t}
 async function launchEngine(){
   const cmd=document.getElementById('mainCmd').value;
-  if(taskQueue.length>0){if(selectedFiles.length&&cmd){const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag});selectedFiles=[];renderFiles();renderQueue()}await launchQueue();return}
+  if(taskQueue.length>0){if(selectedFiles.length&&cmd){const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;const m=document.querySelector('input[name="analyzeLlmMode"]:checked')?.value||'local';taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag,llmMode:m});selectedFiles=[];renderFiles();renderQueue()}await launchQueue();return}
   if(!selectedFiles.length||!cmd)return alert("请上传文件并输入指令");
   const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon');
   btn.disabled=!0;document.getElementById('launchText').innerText="后台处理中...";icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons();
   const fd=new FormData();selectedFiles.forEach(f=>fd.append('files',f));fd.append('instruction',cmd);fd.append('rag_switch',document.getElementById('ragSwitch').checked);fd.append('folder_name',getFolderName());
+  appendAnalyzeAPIConfig(fd);
   try{const res=await fetch(API_BASE+'/upload_folder',{method:'POST',body:fd});const data=await res.json();if(data&&data.task_id){const tid=String(data.task_id);markTaskAsRunning(tid,getFolderName());loadHistory();cacheTaskSources(tid,selectedFiles).catch(e=>console.error(e));pollStatus(tid)}}catch(e){alert("启动失败");resetBtn()}
 }
-function addCurrentTaskToQueue(){const cmd=document.getElementById('mainCmd').value;if(!selectedFiles.length||!cmd){alert('请先选择文件并输入指令');return}const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag});selectedFiles=[];renderFiles();renderQueue()}
+function addCurrentTaskToQueue(){const cmd=document.getElementById('mainCmd').value;if(!selectedFiles.length||!cmd){alert('请先选择文件并输入指令');return}const name=getFolderName();const rag=document.getElementById('ragSwitch').checked;const m=document.querySelector('input[name="analyzeLlmMode"]:checked')?.value||'local';taskQueue.push({id:Date.now()+'_'+taskQueue.length,name,files:[...selectedFiles],instruction:cmd,rag,llmMode:m});selectedFiles=[];renderFiles();renderQueue()}
 function renderQueue(){const b=document.getElementById('queueList');if(!b)return;b.innerHTML=taskQueue.length?taskQueue.map((t,i)=>`<div>(${i+1}) ${t.name}（${t.files.length} 个文件）</div>`).join(''):'当前队列为空'}
-async function launchQueue(){if(!taskQueue.length){alert('当前队列为空');return}const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon'),text=document.getElementById('launchText');if(btn){btn.disabled=!0;text.innerText=`批量提交中...（${taskQueue.length} 项）`;icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons()}for(const t of taskQueue){const fd=new FormData();t.files.forEach(f=>fd.append('files',f));fd.append('instruction',t.instruction);fd.append('rag_switch',t.rag);fd.append('folder_name',t.name);try{const res=await fetch(API_BASE+'/upload_folder',{method:'POST',body:fd});const data=await res.json().catch(()=>null);if(data&&data.task_id){const tid=String(data.task_id);markTaskAsRunning(tid,t.name);loadHistory();cacheTaskSources(tid,t.files).catch(e=>console.error(e))}}catch(e){alert('任务 '+t.name+' 提交失败')}}taskQueue=[];const pqr=setInterval(async()=>{try{const res=await fetch(API_BASE+'/tasks_recent?limit=20');const data=await res.json();for(const i of(data.items||[])){if(i.status!=='processing'&&i.status!=='waiting')unmarkLocalTask(String(i.task_id))}if(!Object.keys(localRunningTasks).length)clearInterval(pqr)}catch(e){clearInterval(pqr)}},2000);renderQueue();loadHistory();resetBtn()}
+async function launchQueue(){if(!taskQueue.length){alert('当前队列为空');return}const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon'),text=document.getElementById('launchText');if(btn){btn.disabled=!0;text.innerText=`批量提交中...（${taskQueue.length} 项）`;icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons()}for(const t of taskQueue){const fd=new FormData();t.files.forEach(f=>fd.append('files',f));fd.append('instruction',t.instruction);fd.append('rag_switch',t.rag);fd.append('folder_name',t.name);if(t.llmMode==='api'){fd.append('llm_mode','api');if(currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c){fd.append('api_base',c.base_url);fd.append('api_key',c.api_key);fd.append('api_model',c.model);}}}try{const res=await fetch(API_BASE+'/upload_folder',{method:'POST',body:fd});const data=await res.json().catch(()=>null);if(data&&data.task_id){const tid=String(data.task_id);markTaskAsRunning(tid,t.name);loadHistory();cacheTaskSources(tid,t.files).catch(e=>console.error(e))}}catch(e){alert('任务 '+t.name+' 提交失败')}}taskQueue=[];const pqr=setInterval(async()=>{try{const res=await fetch(API_BASE+'/tasks_recent?limit=20');const data=await res.json();for(const i of(data.items||[])){if(i.status!=='processing'&&i.status!=='waiting')unmarkLocalTask(String(i.task_id))}if(!Object.keys(localRunningTasks).length)clearInterval(pqr)}catch(e){clearInterval(pqr)}},2000);renderQueue();loadHistory();resetBtn()}
 async function pollStatus(tid){const container=document.getElementById('resultContainer');const taskId=String(tid);const timer=setInterval(async()=>{const res=await fetch(API_BASE+'/task_status/'+taskId);const data=await res.json();if(data.status==='completed'){clearInterval(timer);unmarkLocalTask(taskId);lastResult=stripThinkBlocks(data.result||'');lastViewedTaskId=taskId;taskResultCache[taskId]=lastResult;renderResultWithOptionalQuotes(taskId,lastResult);resetBtn();loadHistory()}else if(data.status==='failed'){clearInterval(timer);unmarkLocalTask(taskId);container.innerText="处理失败："+(data.error||'未知错误');resetBtn()}else if(data.status==='cancelled'){clearInterval(timer);unmarkLocalTask(taskId);container.innerText="任务已终止。";resetBtn();loadHistory()}else{container.innerHTML=`<div style="text-align:center;margin-top:30%"><i data-lucide="refresh-cw" class="loading-spin"></i><br>正在调取工作流...</div>`;lucide.createIcons()}},2000)}
 function resetBtn(){const btn=document.getElementById('launchBtn'),icon=document.getElementById('launchIcon');btn.disabled=!1;document.getElementById('launchText').innerText="启动智能处理";icon.setAttribute('data-lucide','play');icon.classList.remove('loading-spin');lucide.createIcons()}
 function downloadResult(){if(!lastResult)return;const blob=new Blob([lastResult],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download="分析报告.txt";a.click()}
@@ -1206,7 +1371,9 @@ function saveAPIConfig(){
   document.getElementById('apiName').value='';document.getElementById('apiBase').value='';
   document.getElementById('apiKey').value='';document.getElementById('apiModel').value='qwen-plus';
   renderAPIConfigList();
+  if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
 }
+
 function deleteAPIConfig(id){
   if(!confirm('确定删除此配置？'))return;
   apiConfigs=apiConfigs.filter(c=>c.id!==id);
@@ -1217,19 +1384,26 @@ function deleteAPIConfig(id){
     if(apiConfigs.length)selectAPIConfig(apiConfigs[0].id);
   }
   renderAPIConfigList();
+  if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
 }
 function selectAPIConfig(id){
   currentAPIConfigId=id;
   localStorage.setItem('last_api_config_id',id);
   const c=apiConfigs.find(x=>x.id===id);
-  if(c){document.getElementById('apiBase').value=c.base_url;document.getElementById('apiKey').value=c.api_key;document.getElementById('apiModel').value=c.model;}
+  if(c){const eb=document.getElementById('apiBase');if(eb)eb.value=c.base_url;
+         const ek=document.getElementById('apiKey');if(ek)ek.value=c.api_key;
+         const em=document.getElementById('apiModel');if(em)em.value=c.model;}
   renderAPIConfigList();
+  if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
 }
 function clearAPIConfig(){
   currentAPIConfigId=null;
   localStorage.removeItem('last_api_config_id');
-  document.getElementById('apiBase').value='';document.getElementById('apiKey').value='';document.getElementById('apiModel').value='qwen-plus';
+  const eb=document.getElementById('apiBase');if(eb)eb.value='';
+  const ek=document.getElementById('apiKey');if(ek)ek.value='';
+  const em=document.getElementById('apiModel');if(em)em.value='qwen-plus';
   renderAPIConfigList();
+  if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList();
 }
 function renderAPIConfigList(){
   const box=document.getElementById('apiConfigList');
@@ -1262,7 +1436,7 @@ function onLLMModeChange(){
 let classifyFile=null,currentClassifyTaskId=null,classifyPollTimer=null,classifyResultsData=[];
 function onClassifyFileSelect(e){const file=e.target.files[0];if(!file)return;classifyFile=file;const reader=new FileReader();reader.onload=function(){const lines=(reader.result||'').split('\n').filter(l=>l.trim());document.getElementById('classifyFileInfo').innerHTML=`<span style="color:var(--fg);">${file.name}</span> — ${lines.length} 条语音文本`};reader.readAsText(file);e.target.value=''}
 async function startBatchClassify(){if(!classifyFile){alert('请先选择文本文件');return}const btn=document.getElementById('classifyLaunchBtn'),icon=document.getElementById('classifyLaunchIcon'),textEl=document.getElementById('classifyLaunchText');btn.disabled=!0;textEl.innerText='提交中...';icon.setAttribute('data-lucide','refresh-cw');icon.classList.add('loading-spin');lucide.createIcons();if(classifyPollTimer){clearInterval(classifyPollTimer);classifyPollTimer=null}const fd=new FormData();fd.append('files',classifyFile);fd.append('folder_name',document.getElementById('classifyTaskName').value||classifyFile.name);const mode=document.querySelector('input[name="llmMode"]:checked').value;fd.append('llm_mode',mode);if(mode==='api'&&currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c){fd.append('api_base',c.base_url);fd.append('api_key',c.api_key);fd.append('api_model',c.model);}}try{const res=await fetch(API_BASE+'/api/classify/batch',{method:'POST',body:fd});const data=await res.json();if(data.error){alert(data.error);resetClassifyBtn();return}currentClassifyTaskId=data.task_id;btn.style.display='none';document.getElementById('classifyStopBtn').style.display='inline-flex';document.getElementById('classifyProgress').style.display='block';document.getElementById('classifyResultTable').innerHTML=`<div style="padding:20px;text-align:center;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>分类中... 共 ${data.total_lines} 条语音文本</div>`;document.getElementById('classifyStats').innerHTML='';lucide.createIcons();pollClassifyProgress(currentClassifyTaskId);setStep(2)}catch(e){alert('启动分类任务失败');resetClassifyBtn()}}
-function pollClassifyProgress(taskId){if(classifyPollTimer)clearInterval(classifyPollTimer);classifyPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/classify/progress/'+taskId);const data=await res.json();if(!data||data.status==='not_found'){clearInterval(classifyPollTimer);return}const completed=data.completed||0,total=data.total||0,pct=total>0?Math.round(completed/total*100):0;document.getElementById('progressFill').style.width=pct+'%';document.getElementById('progressText').innerText=`${completed} / ${total} (${pct}%)`;if(data.results&&data.results.length>0){classifyResultsData=data.results;renderClassifyStats(data.results);renderClassifyTable(data.results)}if(data.status==='completed'||data.status==='failed'){clearInterval(classifyPollTimer);if(data.status==='completed'){document.getElementById('progressText').innerText=`完成！共 ${completed} 条`;document.getElementById('classifyDownloadBtn').style.display='inline-flex';setStep(3)}resetClassifyBtn()}if(data.status==='cancelled'){clearInterval(classifyPollTimer);document.getElementById('progressText').innerText=`已停止（已处理 ${completed} 条）`;setStep(1);resetClassifyBtn()}}catch(e){clearInterval(classifyPollTimer)}},1500)}
+function pollClassifyProgress(taskId){if(classifyPollTimer)clearInterval(classifyPollTimer);classifyPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/classify/progress/'+taskId);const data=await res.json();if(!data||data.status==='not_found'){clearInterval(classifyPollTimer);return}const completed=data.completed||0,total=data.total||0,pct=total>0?Math.round(completed/total*100):0;document.getElementById('progressFill').style.width=pct+'%';document.getElementById('progressText').innerText=`${completed} / ${total} (${pct}%)`;if(data.results&&data.results.length>0){classifyResultsData=data.results;renderClassifyStats(data.results);renderClassifyTable(data.results)}if(data.status==='completed'||data.status==='failed'){clearInterval(classifyPollTimer);if(data.status==='completed'){document.getElementById('progressText').innerText=`完成！共 ${completed} 条`;document.getElementById('classifyDownloadBtn').style.display='inline-flex';document.getElementById('classifyPreprocessBtn').style.display='inline-flex';setStep(3)}resetClassifyBtn()}if(data.status==='cancelled'){clearInterval(classifyPollTimer);document.getElementById('progressText').innerText=`已停止（已处理 ${completed} 条）`;setStep(1);resetClassifyBtn()}}catch(e){clearInterval(classifyPollTimer)}},1500)}
 function renderClassifyStats(results){
 const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划','噪声'];
 let h='';
@@ -1296,14 +1470,124 @@ return`<tr><td>${r.line_no||''}</td><td title="${escapeHtml(r.original||'')}">${
 document.getElementById('classifyResultTable').innerHTML=h+rows+'</tbody></table>'+(results.length>30?`<div class="text-xs text-muted" style="text-align:center;padding:8px;">显示最近30条，共${results.length}条</div>`:'');
 }
 function downloadClassifyReport(){if(!currentClassifyTaskId)return;window.open(API_BASE+'/api/classify/download/'+currentClassifyTaskId,'_blank')}
+function downloadPreprocessedTxt(){if(!currentClassifyTaskId)return;window.open(API_BASE+'/api/classify/preprocessed/'+currentClassifyTaskId,'_blank')}
 function resetClassifyBtn(){const btn=document.getElementById('classifyLaunchBtn'),icon=document.getElementById('classifyLaunchIcon');btn.style.display='block';btn.disabled=!1;document.getElementById('classifyLaunchText').innerText='启动分类';icon.setAttribute('data-lucide','play');icon.classList.remove('loading-spin');document.getElementById('classifyStopBtn').style.display='none';setStep(1);lucide.createIcons()}
 async function stopBatchClassify(){if(!currentClassifyTaskId)return;document.getElementById('progressText').innerText='正在停止...';document.getElementById('classifyStopBtn').disabled=!0;try{await fetch(API_BASE+'/api/classify/cancel/'+currentClassifyTaskId,{method:'POST'})}catch(e){}pollClassifyProgress(currentClassifyTaskId)}
 function escapeHtml(str){if(!str)return'';return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// --- 文本分析 API 配置 (与分类模块共享 apiConfigs/currentAPIConfigId) ---
+function appendAnalyzeAPIConfig(fd){const m=document.querySelector('input[name="analyzeLlmMode"]:checked')?.value||'local';fd.append('llm_mode',m);if(m==='api'&&currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c){fd.append('api_base',c.base_url);fd.append('api_key',c.api_key);fd.append('api_model',c.model)}}}
+function onAnalyzeLLMModeChange(){const m=document.querySelector('input[name="analyzeLlmMode"]:checked')?.value;document.getElementById('analyzeApiConfig').style.display=m==='api'?'block':'none';if(m==='api'){loadAPIConfigs();renderAnalyzeAPIConfigList();if(!currentAPIConfigId){const lid=localStorage.getItem('last_api_config_id');const t=lid&&apiConfigs.find(c=>c.id===lid)?lid:(apiConfigs.length?apiConfigs[0].id:null);if(t)selectAPIConfig(t)}}}
+function saveAnalyzeAPIConfig(){const n=document.getElementById('analyzeApiName').value.trim();const b=document.getElementById('analyzeApiBase').value.trim();const k=document.getElementById('analyzeApiKey').value.trim();const m=document.getElementById('analyzeApiModel').value.trim()||'qwen-plus';if(!n||!b||!k){alert('名称、BASE_URL、API Key 必填');return}apiConfigs.push({id:Date.now()+'',name:n,base_url:b,api_key:k,model:m});localStorage.setItem('llm_api_configs',JSON.stringify(apiConfigs));document.getElementById('analyzeApiName').value='';document.getElementById('analyzeApiBase').value='';document.getElementById('analyzeApiKey').value='';document.getElementById('analyzeApiModel').value='qwen-plus';renderAnalyzeAPIConfigList()}
+function renderAnalyzeAPIConfigList(){const b=document.getElementById('analyzeApiConfigList');const c=document.getElementById('analyzeApiCurrent');if(!apiConfigs.length){b.innerHTML='<div class="text-xs text-muted">暂无保存的配置</div>';c.innerHTML='';return}b.innerHTML=apiConfigs.map(cf=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;margin-bottom:3px;border:1px solid ${currentAPIConfigId===cf.id?'var(--primary)':'var(--border)'};border-radius:4px;background:${currentAPIConfigId===cf.id?'hsl(142 71% 45% / 0.06)':'var(--bg)'};font-size:11px;gap:4px;"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">📋 ${cf.name} (${cf.model})</span><span class="text-xs text-muted" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cf.base_url}</span><button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px;" onclick="selectAPIConfig('${cf.id}')">选用</button><button class="btn btn-ghost btn-sm" style="padding:1px 4px;font-size:10px;color:var(--destructive);" onclick="deleteAPIConfig('${cf.id}')">✕</button></div>`).join('');if(currentAPIConfigId){const cf=apiConfigs.find(x=>x.id===currentAPIConfigId);c.innerHTML=cf?`当前使用：${cf.name} (${cf.model}) <button class="btn btn-ghost btn-sm" style="padding:1px 4px;font-size:10px;color:var(--destructive);" onclick="clearAPIConfig()">清除</button>`:''}else{c.innerHTML=''}}
 function setStep(s){
   document.querySelectorAll('.step-dot').forEach((el,i)=>{el.classList.remove('done','active');if(i<s-1)el.classList.add('done');if(i===s-1)el.classList.add('active')});
   document.querySelectorAll('.step-line').forEach((el,i)=>{el.classList.toggle('done',i<s-1)});
   document.querySelectorAll('.step-label').forEach((el,i)=>{el.classList.remove('done','active');if(i<s-1)el.classList.add('done');if(i===s-1)el.classList.add('active')});
 }
+// --- 关键要素提取 ---
+let extractFile=null,extractTaskId=null,extractPollTimer=null,extractResults=null;
+function onExtractFileSelect(e){const f=e.target.files[0];if(!f)return;extractFile=f;const r=new FileReader();r.onload=function(){const lines=(r.result||'').split('\n').filter(l=>l.trim());document.getElementById('extractFileInfo').innerHTML=`<span style="color:var(--fg);font-weight:600;">${f.name}</span> — ${lines.length} 条`;const pv=document.getElementById('extractPreview');pv.style.display='block';pv.innerHTML=lines.slice(0,10).map((l,i)=>`<div style="padding:2px 0;border-bottom:1px solid var(--border);">${i+1}. ${escapeHtml(l.substring(0,80))}</div>`).join('')+(lines.length>10?`<div class="text-muted" style="padding:4px;">...共${lines.length}条</div>`:'')};r.readAsText(f);e.target.value=''}
+function _getExtractLlmMode(){return document.querySelector('input[name="extractLlmMode"]:checked')?.value||'api'}
+function _getExtractApiConfig(){const m=_getExtractLlmMode();if(m==='api'&&currentAPIConfigId){const c=apiConfigs.find(x=>x.id===currentAPIConfigId);if(c)return{api_base:c.base_url,api_key:c.api_key,api_model:c.model}}return{api_base:'',api_key:'',api_model:'qwen-plus'}}
+function onExtractLLMModeChange(){const m=_getExtractLlmMode();document.getElementById('extractApiConfig').style.display=m==='api'?'block':'none';if(m==='api'){loadAPIConfigs();renderExtractAPIConfigList();if(!currentAPIConfigId){const lid=localStorage.getItem('last_api_config_id');const t=lid&&apiConfigs.find(c=>c.id===lid)?lid:(apiConfigs.length?apiConfigs[0].id:null);if(t)selectAPIConfig(t)}}}
+function saveExtractAPIConfig(){const n=document.getElementById('extractApiName').value.trim();const b=document.getElementById('extractApiBase').value.trim();const k=document.getElementById('extractApiKey').value.trim();const m=document.getElementById('extractApiModel').value.trim()||'qwen-plus';if(!n||!b||!k){alert('名称、BASE_URL、API Key 必填');return}apiConfigs.push({id:Date.now()+'',name:n,base_url:b,api_key:k,model:m});localStorage.setItem('llm_api_configs',JSON.stringify(apiConfigs));document.getElementById('extractApiName').value='';document.getElementById('extractApiBase').value='';document.getElementById('extractApiKey').value='';document.getElementById('extractApiModel').value='qwen-plus';renderExtractAPIConfigList();if(typeof renderAPIConfigList==='function')renderAPIConfigList();if(typeof renderAnalyzeAPIConfigList==='function')renderAnalyzeAPIConfigList()}
+function renderExtractAPIConfigList(){const b=document.getElementById('extractApiConfigList');const c=document.getElementById('extractApiCurrent');if(!apiConfigs.length){b.innerHTML='<div class="text-xs text-muted">暂无保存的配置</div>';c.innerHTML='';return}b.innerHTML=apiConfigs.map(cf=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;margin-bottom:3px;border:1px solid ${currentAPIConfigId===cf.id?'var(--primary)':'var(--border)'};border-radius:4px;background:${currentAPIConfigId===cf.id?'hsl(142 71% 45% / 0.06)':'var(--bg)'};font-size:11px;gap:4px;"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">📋 ${cf.name} (${cf.model})</span><span class="text-xs text-muted" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cf.base_url}</span><button class="btn btn-ghost btn-sm" style="padding:1px 6px;font-size:10px;" onclick="selectAPIConfig('${cf.id}')">选用</button><button class="btn btn-ghost btn-sm" style="padding:1px 4px;font-size:10px;color:var(--destructive);" onclick="deleteAPIConfig('${cf.id}')">✕</button></div>`).join('');if(currentAPIConfigId){const cf=apiConfigs.find(x=>x.id===currentAPIConfigId);c.innerHTML=cf?`当前：${cf.name} <button class="btn btn-ghost btn-sm" style="padding:1px 4px;font-size:10px;color:var(--destructive);" onclick="clearAPIConfig()">清除</button>`:''}else{c.innerHTML=''}}
+function _setExtractStep(s){
+  for(let i=1;i<=4;i++){const d=document.getElementById('extStepDot'+i);if(d){d.classList.remove('done','active');if(i<s)d.classList.add('done');if(i===s)d.classList.add('active')}}
+  for(let i=1;i<=3;i++){const l=document.getElementById('extStepLine'+i);if(l)l.classList.toggle('done',i<s)}
+  for(let i=1;i<=4;i++){const lbl=document.getElementById('extStepLabel'+i);if(lbl){lbl.classList.remove('done','active');if(i<s)lbl.classList.add('done');if(i===s)lbl.classList.add('active')}}
+}
+async function startExtractClassify(){
+  if(!extractFile){alert('请先选择文件');return}
+  const btn=document.getElementById('extractClassifyBtn');btn.disabled=!0;btn.innerText='分类中...';
+  document.getElementById('extractResultContainer').innerHTML='<div style="text-align:center;padding:40px;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>分类标注中...</div>';lucide.createIcons();
+  _setExtractStep(2);
+  const fd=new FormData();fd.append('files',extractFile);fd.append('llm_mode',_getExtractLlmMode());
+  const cfg=_getExtractApiConfig();fd.append('api_base',cfg.api_base);fd.append('api_key',cfg.api_key);fd.append('api_model',cfg.api_model);
+  try{const res=await fetch(API_BASE+'/api/extract/batch',{method:'POST',body:fd});const data=await res.json();
+  if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='启动分类标注';return}
+  extractTaskId=data.task_id;pollExtractClassify();}catch(e){alert('启动失败');btn.disabled=!1;btn.innerText='启动分类标注'}
+}
+function pollExtractClassify(){
+  if(extractPollTimer)clearInterval(extractPollTimer);
+  extractPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/extract/progress/'+extractTaskId);const data=await res.json();
+  if(data.status==='classified'){clearInterval(extractPollTimer);extractResults=data.results||[];
+  renderExtractLabels(extractResults);_setExtractStep(3);
+  document.getElementById('extractClassifyBtn').style.display='none';
+  document.getElementById('extractResultContainer').innerHTML='<div class="text-sm text-muted" style="padding:20px;text-align:center;">分类完成，请选择标签后点击"开始提取"</div>'}
+  else if(data.status==='failed'){clearInterval(extractPollTimer);document.getElementById('extractClassifyBtn').disabled=!1;document.getElementById('extractClassifyBtn').innerText='启动分类标注';document.getElementById('extractResultContainer').innerText='分类失败：'+(data.error||'未知')}
+  else if(data.status==='classifying'){document.getElementById('extractClassifyBtn').innerText=`分类中... ${data.completed||0}/${data.total||0}`}
+  }catch(e){clearInterval(extractPollTimer)}},1500);
+}
+let extractSelectedLabels=new Set();
+const EXTRACT_COLORS={指令:'#ef4444',情报:'#3b82f6',态势:'#8b5cf6',火力:'#f59e0b',补给:'#10b981',通信:'#6366f1',敌情:'#dc2626',计划:'#06b6d4',噪声:'#6b7280'};
+
+function initExtractLabelBtns(){
+  const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划'];
+  document.getElementById('extractLabelBtns').innerHTML=CATS.map(c=>{
+    return`<button class="extract-tag-btn" id="extTag_${c}" onclick="onExtractLabelToggle('${c}')">${c}</button>`;
+  }).join('');
+  extractSelectedLabels=new Set();
+  _updateExtractSelectedLine();
+}
+function onExtractLabelToggle(label){
+  const el=document.getElementById('extTag_'+label);
+  if(!el)return;
+  if(extractSelectedLabels.has(label)){
+    extractSelectedLabels.delete(label);
+    el.classList.remove('active');
+  } else {
+    extractSelectedLabels.add(label);
+    el.classList.add('active');
+  }
+  _updateExtractSelectedLine();
+}
+function _updateExtractSelectedLine(){
+  const arr=[...extractSelectedLabels];
+  document.getElementById('extractLabelSelected').innerHTML=arr.length?
+    '已选：'+arr.map(l=>`<span style="color:${EXTRACT_COLORS[l]};font-weight:600;">${l}</span>`).join('、'):'未选择标签';
+}
+function renderExtractLabels(results){
+  extractResults=results;
+  const counts={};results.forEach(r=>{const l=r.label||'未分类';counts[l]=(counts[l]||0)+1});
+  extractLabelCounts=counts;
+  const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划','噪声'];
+  document.getElementById('extractLabelBtns').innerHTML=CATS.filter(c=>c!=='噪声').map(c=>{
+    const n=counts[c]||0;
+    const disabled=n===0?' disabled style="opacity:0.3;cursor:not-allowed;"':'';
+    const active=extractSelectedLabels.has(c)?' active':'';
+    return`<button class="extract-tag-btn${active}" id="extTag_${c}" onclick="onExtractLabelToggle('${c}')"${disabled}>${c} (${n}条)</button>`;
+  }).join('');
+  _updateExtractSelectedLine();
+}
+async function startExtract(){
+  const labels=[...extractSelectedLabels];
+  if(!labels.length){alert('请至少选择一个标签');return}
+  const btn=document.getElementById('extractLaunchBtn');btn.disabled=!0;btn.innerText='提取中...';
+  document.getElementById('extractProgress').style.display='block';_setExtractStep(4);
+  const cfg=_getExtractApiConfig();
+  try{const res=await fetch(API_BASE+'/api/extract/extract',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({task_id:extractTaskId,labels,...cfg})});const data=await res.json();
+  if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='开始提取';return}
+  pollExtractProgress();}catch(e){alert('提取失败');btn.disabled=!1;btn.innerText='开始提取'}
+}
+function pollExtractProgress(){
+  if(extractPollTimer)clearInterval(extractPollTimer);
+  extractPollTimer=setInterval(async()=>{try{const res=await fetch(API_BASE+'/api/extract/progress/'+extractTaskId);const data=await res.json();
+  if(data.status==='completed'){clearInterval(extractPollTimer);
+    document.getElementById('extractProgress').style.display='none';
+    document.getElementById('extractLaunchBtn').innerText='开始提取';document.getElementById('extractLaunchBtn').disabled=!1;
+    document.getElementById('extractResultContainer').innerHTML=marked.parse(data.report||'');
+    document.getElementById('extractDownloadBtn').style.display='inline-flex';}
+  else if(data.status==='failed'){clearInterval(extractPollTimer);document.getElementById('extractResultContainer').innerText='提取失败：'+(data.error||'未知');
+    document.getElementById('extractLaunchBtn').disabled=!1;document.getElementById('extractLaunchBtn').innerText='开始提取';}
+  else{const pct=data.stage==='verifying'?66:33;document.getElementById('extractProgressFill').style.width=pct+'%';
+    document.getElementById('extractProgressText').innerText=data.stage||'处理中...';}
+  }catch(e){clearInterval(extractPollTimer)}},2000);
+}
+function downloadExtractReport(){if(!extractTaskId)return;window.open(API_BASE+'/api/extract/download/'+extractTaskId,'_blank')}
+document.addEventListener('DOMContentLoaded',function(){initExtractLabelBtns()});
+
 </script>
 
 </body>

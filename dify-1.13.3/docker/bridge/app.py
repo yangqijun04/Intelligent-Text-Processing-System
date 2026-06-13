@@ -13,6 +13,7 @@ from flask import Response as FlaskResponse
 
 from preprocessing import clean_text, estimate_asr_noise_level, split_text_to_lines
 from semantic_classifier import BatchClassifier, KeywordMatcher
+from semantic_classifier import EXTRACT_PROMPT, VERIFY_PROMPT, CLASSIFY_PROMPT as _CPT
 
 # ---------------------------------------------------------------------------
 # Config
@@ -21,6 +22,25 @@ DIFY_API_URL = os.environ.get("DIFY_API_URL", "http://api:5001/v1")
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "")
 DIFY_CLASSIFY_API_KEY = os.environ.get("DIFY_CLASSIFY_API_KEY", "")
 PORT = int(os.environ.get("BRIDGE_PORT", "8088"))
+
+ANALYZE_PROMPT = """你是高级情报分析专家，拥有20年经验。请严格遵循以下指令处理文档。
+
+📋 用户指令：{instruction}
+
+📄 文档内容：
+{documents}
+
+📌 处理要求：
+1. 如果是"要素提取"类指令：从文档中逐条提取关键要素（人名、地名、时间、组织、事件），分节罗列
+2. 如果是"总结/概括"类指令：提炼核心要点，逻辑清晰，简明扼要
+3. 如果是"文本聚合/拟文/报文"类指令：重塑为标准公文/简报/报文格式，语言官方化
+4. 如果是"交叉对比"类指令：分析多文档间异同、矛盾点、互补信息，给出综合研判
+5. 如果与文档内容无关：礼貌提示，并给出正确操作建议
+6. 输出纯Markdown格式，不要添加额外解释说明
+7. 引用原文时使用 > 标注，注明来源文档序号"""
+
+# 最大文档内容长度（字符数）
+MAX_DOC_CHARS = 50000
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -152,6 +172,88 @@ def _run_workflow(task_id: str, file_ids: list[str], instruction: str, rag_switc
             }
 
 
+def _run_workflow_api(task_id: str, files: list, instruction: str, folder_name: str,
+                      api_base: str, api_key: str, api_model: str) -> None:
+    """
+    Background thread: read uploaded files, construct prompt, call OpenAI API, store result.
+    """
+    try:
+        # 1) 读取文件内容
+        doc_parts: list[str] = []
+        total_chars = 0
+        for i, f in enumerate(files):
+            try:
+                f.stream.seek(0)
+                content = f.read().decode("utf-8", errors="replace")
+                safe_name = f.filename or f"文档{i+1}"
+                if total_chars + len(content) > MAX_DOC_CHARS:
+                    remaining = MAX_DOC_CHARS - total_chars
+                    if remaining > 500:
+                        content = content[:remaining] + "\n\n[提示] 文档过长，已截断..."
+                doc_parts.append(f"\n### 文档{i+1}：{safe_name}\n{content}")
+                total_chars += len(content)
+            except Exception as exc:
+                logger.warning("task %s: failed to read file %s: %s", task_id, f.filename, exc)
+                doc_parts.append(f"\n### 文档{i+1}：{f.filename}\n[读取失败]")
+
+        docs_text = "\n".join(doc_parts)
+        if not docs_text.strip():
+            raise ValueError("所有文件读取失败或为空")
+
+        # 2) 构造 prompt
+        prompt = ANALYZE_PROMPT.replace("{instruction}", instruction).replace("{documents}", docs_text)
+
+        # 3) 调用 API
+        logger.info("task %s: calling API %s model=%s", task_id, api_base, api_model)
+        resp = requests.post(
+            f"{api_base.rstrip('/')}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": api_model,
+                "messages": [
+                    {"role": "system", "content": "你是一个专业的情报分析助手，请严格按指令处理文档。"},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.3,
+            },
+            timeout=600,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        result_text = body["choices"][0]["message"]["content"]
+
+        # 4) 存储结果
+        with _lock:
+            _tasks[task_id] = {
+                "task_id": task_id,
+                "folder_name": folder_name,
+                "status": "completed",
+                "result": result_text,
+                "error": "",
+                "created_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "workflow_run_id": "api-mode",
+            }
+        logger.info("task %s: API completed (%d chars)", task_id, len(result_text))
+
+    except Exception as exc:
+        logger.exception("task %s: API failed", task_id)
+        with _lock:
+            _tasks[task_id] = {
+                "task_id": task_id,
+                "folder_name": folder_name,
+                "status": "failed",
+                "result": "",
+                "error": str(exc),
+                "created_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "workflow_run_id": "",
+            }
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -170,19 +272,45 @@ def static_files(p: str):
 
 @app.post("/upload_folder")
 def upload_folder():
-    """Accept files + instruction, start workflow in background, return task_id."""
+    """Accept files + instruction, start workflow or API in background, return task_id."""
     files = request.files.getlist("files")
     instruction = (request.form.get("instruction") or "").strip()
     rag_switch_raw = request.form.get("rag_switch", "false")
     rag_switch = "true" if rag_switch_raw in ("true", "True", "1", True) else "false"
     folder_name = (request.form.get("folder_name") or "未命名任务").strip()
+    llm_mode = (request.form.get("llm_mode") or "local").strip()
+    api_base = (request.form.get("api_base") or "").strip()
+    api_key = (request.form.get("api_key") or "").strip()
+    api_model = (request.form.get("api_model") or "").strip()
 
     if not files:
         return jsonify({"error": "未上传任何文件"}), 400
     if not instruction:
         return jsonify({"error": "未输入处理指令"}), 400
 
-    # 1) Upload each file to Dify and collect file IDs
+    task_id = str(uuid.uuid4())
+    with _lock:
+        _tasks[task_id] = {
+            "task_id": task_id,
+            "folder_name": folder_name,
+            "status": "processing",
+            "result": "",
+            "error": "",
+            "created_at": _now_iso(),
+            "finished_at": "",
+            "workflow_run_id": "",
+        }
+
+    # API模式：直接调用 OpenAI 兼容 API
+    if llm_mode == "api" and api_base and api_key:
+        threading.Thread(
+            target=_run_workflow_api,
+            args=(task_id, files, instruction, folder_name, api_base, api_key, api_model or "gpt-4"),
+            daemon=True,
+        ).start()
+        return jsonify({"task_id": task_id, "mode": "api"})
+
+    # Dify模式：上传文件到Dify → 启动工作流
     file_ids: list[str] = []
     upload_headers = {"Authorization": f"Bearer {DIFY_API_KEY}"}
     for f in files:
@@ -205,27 +333,13 @@ def upload_folder():
             logger.exception("file upload failed: %s", f.filename)
             return jsonify({"error": f"文件 {f.filename} 上传失败: {exc}"}), 500
 
-    # 2) Create task and start workflow in background thread
-    task_id = str(uuid.uuid4())
-    with _lock:
-        _tasks[task_id] = {
-            "task_id": task_id,
-            "folder_name": folder_name,
-            "status": "processing",
-            "result": "",
-            "error": "",
-            "created_at": _now_iso(),
-            "finished_at": "",
-            "workflow_run_id": "",
-        }
-
     threading.Thread(
         target=_run_workflow,
         args=(task_id, file_ids, instruction, rag_switch, folder_name),
         daemon=True,
     ).start()
 
-    return jsonify({"task_id": task_id})
+    return jsonify({"task_id": task_id, "mode": "dify"})
 
 
 @app.get("/task_status/<task_id>")
@@ -455,6 +569,31 @@ def classify_download(task_id: str):
     )
 
 
+@app.get("/api/classify/preprocessed/<task_id>")
+def classify_preprocessed(task_id: str):
+    """Download preprocessed text (纠错后，去掉噪声，按行号排序)."""
+    with _batch_lock:
+        info = _batch_tasks.get(task_id)
+
+    if not info or info["status"] != "completed":
+        return jsonify({"error": "任务未完成或不存在"}), 400
+
+    results: list[dict] = info.get("results", [])
+    classifier = info.get("classifier")
+    if classifier and hasattr(classifier, "generate_preprocessed_txt"):
+        txt = classifier.generate_preprocessed_txt(results)
+    else:
+        valid = [r for r in results if r.get("label") not in ("噪声", "空行", "分类失败", "解析失败")]
+        valid.sort(key=lambda r: r.get("line_no", 0))
+        txt = "\n".join([r.get("preprocessed") or r.get("original", "") for r in valid])
+
+    return FlaskResponse(
+        txt,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=preprocessed_{task_id[:8]}.txt"},
+    )
+
+
 def _generate_report_simple(results: list[dict]) -> str:
     """Standalone report generator."""
     categorized: dict[str, list[dict]] = {}
@@ -486,6 +625,230 @@ def _generate_report_simple(results: list[dict]) -> str:
         parts.append("\n")
     return "".join(parts)
 
+
+# ---------------------------------------------------------------------------
+# 关键要素提取
+# ---------------------------------------------------------------------------
+_extract_tasks: dict[str, dict] = {}
+_extract_lock = threading.Lock()
+
+
+def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str],
+                      classified_results: list[dict],
+                      api_base: str, api_key: str, api_model: str) -> None:
+    """Background thread: filter by labels → LLM extract → LLM verify."""
+    try:
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "extracting", "stage": "过滤中"}
+
+        filtered = [(r["line_no"], r["preprocessed"] or r["original"])
+                    for r in classified_results
+                    if r.get("label") in selected_labels]
+        if not filtered:
+            with _extract_lock:
+                _extract_tasks[task_id] = {"status": "failed", "error": "选中的标签下无匹配文本"}
+            return
+        filtered_text = "\n".join(f"[行{n}] {t}" for n, t in filtered)
+
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "extracting", "stage": "提取关键要素中"}
+        labels_str = "、".join(selected_labels)
+        extract_prompt = EXTRACT_PROMPT.replace("{labels}", labels_str).replace("{filtered_lines}", filtered_text)
+        extract_result = _call_api_simple(api_base, api_key, api_model, extract_prompt)
+        if extract_result.startswith("[错误]"):
+            with _extract_lock:
+                _extract_tasks[task_id] = {"status": "failed", "error": extract_result}
+            return
+
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "verifying", "stage": "检验遗漏中"}
+        all_text = "\n".join(
+            f"[行{r['line_no']}] {r['original']}" for r in classified_results if r.get("label") != "空行"
+        )
+        verify_prompt = VERIFY_PROMPT.replace("{extracted_summary}", extract_result).replace("{all_lines}", all_text)
+        verify_result = _call_api_simple(api_base, api_key, api_model, verify_prompt)
+
+        now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        report = f"""## 关键要素提取报告
+
+- 处理时间：{now}
+- 选中标签：{labels_str}
+- 匹配行数：{len(filtered)} 条
+- 模式：API ({api_model})
+
+---
+
+### 📋 提取结果
+
+{extract_result}
+
+---
+
+### 🔍 检验结果
+
+{verify_result if not verify_result.startswith('[错误]') else f'(检验异常: {verify_result})'}
+"""
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "completed", "report": report,
+                                        "extract": extract_result, "verify": verify_result}
+        logger.info("Extract %s: completed", task_id)
+
+    except Exception as exc:
+        logger.exception("Extract %s: failed", task_id)
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "failed", "error": str(exc)}
+
+
+def _call_api_simple(api_base: str, api_key: str, api_model: str, prompt: str) -> str:
+    try:
+        resp = requests.post(
+            f"{api_base.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": api_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3},
+            timeout=600,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:
+        logger.error("API call failed: %s", exc)
+        return f"[错误] {exc}"
+
+
+@app.post("/api/extract/batch")
+def extract_batch():
+    files = request.files.getlist("files")
+    llm_mode = (request.form.get("llm_mode") or "local").strip()
+    api_base = (request.form.get("api_base") or "").strip()
+    api_key = (request.form.get("api_key") or "").strip()
+    api_model = (request.form.get("api_model") or "qwen-plus").strip()
+
+    if not files:
+        return jsonify({"error": "未上传文件"}), 400
+
+    all_lines: list[str] = []
+    original_filename = "unknown"
+    for f in files:
+        original_filename = f.filename or "unknown"
+        try:
+            content = f.read().decode("utf-8", errors="replace")
+            lines = split_text_to_lines(content)
+            all_lines.extend(lines)
+        except Exception as exc:
+            return jsonify({"error": f"文件 {f.filename} 读取失败: {exc}"}), 400
+
+    if not all_lines:
+        return jsonify({"error": "文件中未检测到有效文本内容"}), 400
+
+    _, keyword_categories = _load_keywords()
+    if not keyword_categories:
+        return jsonify({"error": "未找到预设关键词词典"}), 400
+
+    task_id = str(uuid.uuid4())
+    threading.Thread(
+        target=_run_extract_classify,
+        args=(task_id, all_lines, keyword_categories, original_filename,
+              llm_mode, api_base, api_key, api_model),
+        daemon=True,
+    ).start()
+
+    return jsonify({"task_id": task_id, "total_lines": len(all_lines), "original_filename": original_filename})
+
+
+def _run_extract_classify(task_id: str, lines: list[str], keyword_categories: dict,
+                          original_filename: str, llm_mode: str,
+                          api_base: str, api_key: str, api_model: str) -> None:
+    try:
+        classifier = BatchClassifier(
+            dify_api_url=DIFY_API_URL,
+            dify_api_key=DIFY_CLASSIFY_API_KEY or DIFY_API_KEY,
+            keyword_categories=keyword_categories,
+            llm_mode=llm_mode,
+            api_base=api_base,
+            api_key=api_key,
+            api_model=api_model,
+        )
+        results: list[dict] = []
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "classifying", "total": len(lines), "results": results}
+
+        for progress in classifier.classify_lines(lines, task_id):
+            r = progress["result"]
+            results.append(r)
+            with _extract_lock:
+                _extract_tasks[task_id] = {"status": "classifying", "total": len(lines),
+                                            "results": list(results), "completed": len(results)}
+
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "classified", "total": len(lines),
+                                        "results": results, "original_filename": original_filename}
+        logger.info("Extract classify %s: completed, %d lines", task_id, len(results))
+    except Exception as exc:
+        logger.exception("Extract classify %s: failed", task_id)
+        with _extract_lock:
+            _extract_tasks[task_id] = {"status": "failed", "error": str(exc)}
+
+
+@app.post("/api/extract/extract")
+def extract_run():
+    data = request.get_json(force=True)
+    task_id = (data or {}).get("task_id", "")
+    labels = (data or {}).get("labels", [])
+    api_base = (data or {}).get("api_base", "")
+    api_key = (data or {}).get("api_key", "")
+    api_model = (data or {}).get("api_model", "qwen-plus")
+
+    if not task_id or not labels:
+        return jsonify({"error": "缺少 task_id 或 labels"}), 400
+
+    with _extract_lock:
+        info = _extract_tasks.get(task_id)
+    if not info or info["status"] != "classified":
+        return jsonify({"error": "任务未完成分类或不存在"}), 400
+
+    results = info.get("results", [])
+    threading.Thread(
+        target=_run_extract_task,
+        args=(task_id, [], labels, results, api_base, api_key, api_model),
+        daemon=True,
+    ).start()
+
+    return jsonify({"status": "started"})
+
+
+@app.get("/api/extract/progress/<task_id>")
+def extract_progress(task_id: str):
+    with _extract_lock:
+        info = _extract_tasks.get(task_id)
+    if not info:
+        return jsonify({"status": "not_found"}), 404
+    resp = {"status": info["status"]}
+    for k in ("total", "completed", "stage", "report", "results", "error"):
+        if k in info:
+            resp[k] = info[k]
+    return jsonify(resp)
+
+
+@app.get("/api/extract/download/<task_id>")
+def extract_download(task_id: str):
+    with _extract_lock:
+        info = _extract_tasks.get(task_id)
+    if not info or info.get("status") != "completed":
+        return jsonify({"error": "提取未完成"}), 400
+    report = info.get("report", "")
+    return FlaskResponse(
+        report, mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=extract_report_{task_id[:8]}.md"},
+    )
+
+
+@app.get("/api/extract/active")
+def extract_active():
+    with _extract_lock:
+        for tid, info in _extract_tasks.items():
+            if info.get("status") in ("classifying", "extracting", "verifying"):
+                return jsonify({"active": True, "task_id": tid, "status": info["status"],
+                                "total": info.get("total", 0), "completed": info.get("completed", 0)})
+    return jsonify({"active": False})
 
 
 # ---------------------------------------------------------------------------
