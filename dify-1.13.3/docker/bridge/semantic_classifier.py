@@ -538,6 +538,8 @@ class BatchClassifier:
         parts.append(f"- 处理时间：{now}\n")
         parts.append(f"- 数据来源：{original_filename}\n")
         parts.append(f"- 分类模式：关键词 + LLM 并行分类，结果比对\n")
+        model_info = f"API ({self.api_model})" if self.llm_mode == "api" else "本地 Ollama (qwen3:8b)"
+        parts.append(f"- 使用模型：{model_info}\n")
         parts.append(f"- 总条目：{total}\n")
         parts.append(f"- 一致通过：{len([r for r in results if r.get('status') == 'verified' and r.get('label') != '空行'])} 条\n")
         parts.append(f"- 冲突待处理：{len([r for r in results if r.get('status') == 'conflict'])} 条\n\n")

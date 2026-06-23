@@ -407,10 +407,12 @@ def _run_batch_classify(task_id: str, lines: list[str], keyword_categories: dict
         results: list[dict] = []
         error_count = 0
         with _batch_lock:
+            model_label = f"API ({api_model})" if llm_mode == "api" else "本地 Ollama (qwen3:8b)"
             _batch_tasks[task_id] = {
                 "status": "processing", "total": len(lines), "cancelled": False,
                 "results": results, "classifier": classifier,
                 "folder_name": folder_name, "original_filename": original_filename,
+                "model_info": model_label,
             }
 
         for progress in classifier.classify_lines(lines, task_id):
@@ -557,10 +559,11 @@ def classify_download(task_id: str):
     results: list[dict] = info.get("results", [])
     original_filename = ""  # Stored in the initial response, but we don't persist it
     classifier = info.get("classifier")
+    model_info = info.get("model_info", "")
     if classifier and hasattr(classifier, "generate_report"):
         report = classifier.generate_report(results, original_filename)
     else:
-        report = _generate_report_simple(results)
+        report = _generate_report_simple(results, model_info)
 
     return FlaskResponse(
         report,
@@ -594,7 +597,7 @@ def classify_preprocessed(task_id: str):
     )
 
 
-def _generate_report_simple(results: list[dict]) -> str:
+def _generate_report_simple(results: list[dict], model_info: str = "") -> str:
     """Standalone report generator."""
     categorized: dict[str, list[dict]] = {}
     for r in results:
@@ -602,7 +605,10 @@ def _generate_report_simple(results: list[dict]) -> str:
             cat = r.get("label", "未分类")
             categorized.setdefault(cat, []).append(r)
     now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    parts = [f"## 语音文本分类报告\n\n", f"- 处理时间：{now}\n", f"- 总条目：{len(results)}\n"]
+    parts = [f"## 语音文本分类报告\n\n", f"- 处理时间：{now}\n"]
+    if model_info:
+        parts.append(f"- 使用模型：{model_info}\n")
+    parts.append(f"- 总条目：{len(results)}\n")
     verified = len([r for r in results if r.get("status") == "verified" and r.get("label") != "空行"])
     conflicts = len([r for r in results if r.get("status") == "conflict"])
     parts.append(f"- 一致通过：{verified} 条\n")

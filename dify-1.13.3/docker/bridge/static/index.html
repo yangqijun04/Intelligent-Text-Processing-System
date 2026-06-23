@@ -572,6 +572,7 @@ select.input { cursor: pointer; }
 .feature-card:hover { border-color:hsl(257 48% 54% / 0.25); transform:translateY(-2px); box-shadow:0 6px 20px hsl(257 48% 54% / 0.06); }
 .feature-accent-blue { position:absolute; top:0; left:0; width:3px; height:100%; background:linear-gradient(to bottom,hsl(257 44% 62% / 0.25),transparent); border-radius:0.75rem 0 0 0.75rem; }
 .feature-accent-violet { position:absolute; top:0; left:0; width:3px; height:100%; background:linear-gradient(to bottom,hsl(257 48% 44% / 0.25),transparent); border-radius:0.75rem 0 0 0.75rem; }
+.feature-accent-mid { position:absolute; top:0; left:0; width:3px; height:100%; background:linear-gradient(to bottom,hsl(257 48% 50% / 0.30),transparent); border-radius:0.75rem 0 0 0.75rem; }
 .step-card { display:flex; flex-direction:column; align-items:center; text-align:center; }
 .step-icon-wrap { width:56px;height:56px; border-radius:0.75rem; border:1px solid hsl(257 48% 54% / 0.15); background:hsl(257 48% 54% / 0.04); display:flex; align-items:center; justify-content:center; margin-bottom:12px; transition:all 0.2s; }
 .step-icon-wrap:hover { transform:scale(1.05); border-color:hsl(257 48% 54% / 0.35); background:hsl(257 48% 54% / 0.08); box-shadow:0 4px 12px hsl(257 48% 54% / 0.08); }
@@ -713,7 +714,7 @@ select.input { cursor: pointer; }
     <div>
       <h2 style="font-family:var(--font-display); font-size:20px; font-weight:700; margin-bottom:4px;">核心功能</h2>
       <p style="font-size:12px; color:var(--muted-fg); margin-bottom:14px;">从数据摄入到智能文本分析，覆盖文本处理的完整链路</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
         <div class="feature-card" onclick="switchPage('classify')">
           <div class="feature-accent-violet"></div>
           <div style="padding:20px 20px 20px 24px;">
@@ -730,6 +731,22 @@ select.input { cursor: pointer; }
             </div>
           </div>
         </div>
+        <div class="feature-card" onclick="switchPage('extract')">
+          <div class="feature-accent-mid"></div>
+          <div style="padding:20px 20px 20px 24px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px;">
+              <div style="width:44px;height:44px; border-radius:10px; background:hsl(257 48% 50% / 0.08); display:flex; align-items:center; justify-content:center; transition:transform 0.2s;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(257 48% 50%)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
+              </div>
+              <span class="badge badge-muted" style="font-size:10px;">02</span>
+            </div>
+            <h3 style="font-size:17px; font-weight:700; margin-bottom:6px;">关键要素提取</h3>
+            <p style="font-size:12px; color:var(--muted-fg); line-height:1.7;">选择标签 → AI提取结构化要素 → 遗漏检验，输出完整作战信息报告。</p>
+            <div style="margin-top:12px; display:flex; align-items:center; gap:4px; font-size:13px; font-weight:600; color:hsl(257 48% 50%);">
+              进入模块 <i data-lucide="arrow-right" style="width:13px;height:13px;"></i>
+            </div>
+          </div>
+        </div>
         <div class="feature-card" onclick="switchPage('analyze')">
           <div class="feature-accent-blue"></div>
           <div style="padding:20px 20px 20px 24px;">
@@ -737,7 +754,7 @@ select.input { cursor: pointer; }
               <div style="width:44px;height:44px; border-radius:10px; background:hsl(257 44% 62% / 0.08); display:flex; align-items:center; justify-content:center; transition:transform 0.2s;">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(257 44% 62%)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
               </div>
-              <span class="badge badge-muted" style="font-size:10px;">02</span>
+              <span class="badge badge-muted" style="font-size:10px;">03</span>
             </div>
             <h3 style="font-size:17px; font-weight:700; margin-bottom:6px;">智能文本分析</h3>
             <p style="font-size:12px; color:var(--muted-fg); line-height:1.7;">上传文档，输入指令，AI 自动完成要素提取、合并总结、文本聚合与交叉对比。</p>
