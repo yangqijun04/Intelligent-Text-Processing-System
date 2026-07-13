@@ -1552,7 +1552,7 @@ async function startExtract(){
   const btn=document.getElementById('extractLaunchBtn');btn.disabled=!0;btn.innerText='提取中...';
   document.getElementById('extractProgress').style.display='block';_setExtractStep(2);
   document.getElementById('extractResultContainer').innerHTML='<div style="text-align:center;padding:40px;"><i data-lucide="refresh-cw" class="loading-spin"></i><br>提取中...</div>';lucide.createIcons();
-  const fd=new FormData();fd.append('files',extractFile);fd.append('labels',labels.join(','));
+  const fd=new FormData();fd.append('files',extractFile);fd.append('labels',labels.join(','));fd.append('llm_mode',_getExtractLlmMode());
   const cfg=_getExtractApiConfig();fd.append('api_base',cfg.api_base);fd.append('api_key',cfg.api_key);fd.append('api_model',cfg.api_model);
   try{const res=await fetch(API_BASE+'/api/extract/extract',{method:'POST',body:fd});const data=await res.json();
   if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='开始提取';return}

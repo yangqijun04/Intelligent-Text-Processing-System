@@ -21,7 +21,10 @@ from semantic_classifier import EXTRACT_PROMPT, VERIFY_PROMPT, CLASSIFY_PROMPT a
 DIFY_API_URL = os.environ.get("DIFY_API_URL", "http://api:5001/v1")
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "")
 DIFY_CLASSIFY_API_KEY = os.environ.get("DIFY_CLASSIFY_API_KEY", "")
+DIFY_EXTRACT_API_KEY = os.environ.get("DIFY_EXTRACT_API_KEY", "")
 PORT = int(os.environ.get("BRIDGE_PORT", "8088"))
+OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://ollama:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
 
 ANALYZE_PROMPT = """你是高级情报分析专家，拥有20年经验。请严格遵循以下指令处理文档。
 
@@ -640,7 +643,7 @@ _extract_lock = threading.Lock()
 
 
 def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str],
-                      api_base: str, api_key: str, api_model: str) -> None:
+                      llm_mode: str, api_base: str, api_key: str, api_model: str) -> None:
     """从文本标签解析 → 过滤 → LLM提取 → LLM检验。"""
     try:
         with _extract_lock:
@@ -666,13 +669,48 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
                 _extract_tasks[task_id] = {"status": "failed", "error": "选中的标签下无匹配文本"}
             return
         filtered_text = "\n".join(f"[行{n}] {t}" for n, t in filtered)
+        labels_str = "、".join(selected_labels)
 
-        # 提取
+        if llm_mode == "local" and DIFY_EXTRACT_API_KEY and DIFY_EXTRACT_API_KEY != "app-extract-placeholder":
+            # 本地模式：调用 Dify 提取工作流（工作流内部处理提取+检验）
+            with _extract_lock:
+                _extract_tasks[task_id] = {"status": "extracting", "stage": "调用提取工作流中"}
+            wf_result = _call_dify_extract(filtered_text, labels_str)
+            if wf_result.startswith("[错误]"):
+                with _extract_lock:
+                    _extract_tasks[task_id] = {"status": "failed", "error": wf_result}
+                return
+            now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            report = f"""## 关键要素提取报告
+
+- 处理时间：{now}
+- 选中标签：{labels_str}
+- 匹配行数：{len(filtered)} 条
+- 模式：本地 Dify (Ollama)
+
+---
+
+{wf_result}
+"""
+            with _extract_lock:
+                _extract_tasks[task_id] = {"status": "completed", "report": report,
+                                            "extract": wf_result, "verify": ""}
+            logger.info("Extract %s: completed via Dify workflow", task_id)
+            return
+
+        # API 模式（或本地模式无 Dify 工作流时的回退）：两阶段 API 调用
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "extracting", "stage": "提取关键要素中"}
-        labels_str = "、".join(selected_labels)
-        extract_prompt = EXTRACT_PROMPT.replace("{labels}", labels_str).replace("{filtered_lines}", filtered_text)
-        extract_result = _call_api_simple(api_base, api_key, api_model, extract_prompt)
+        is_local_fallback = llm_mode == "local"
+        if is_local_fallback:
+            extract_result = _call_ollama_raw(
+                EXTRACT_PROMPT.replace("{labels}", labels_str).replace("{filtered_lines}", filtered_text)
+            )
+        else:
+            extract_result = _call_api_simple(
+                api_base, api_key, api_model,
+                EXTRACT_PROMPT.replace("{labels}", labels_str).replace("{filtered_lines}", filtered_text)
+            )
         if extract_result.startswith("[错误]"):
             with _extract_lock:
                 _extract_tasks[task_id] = {"status": "failed", "error": extract_result}
@@ -681,18 +719,21 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
         # 检验
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "verifying", "stage": "检验遗漏中"}
-        all_text = "\n".join(f"[行{i+1}] {re.sub(r'（\S+）\s*$', '', l)}" for i, l in enumerate(lines) if l.strip())
-        verify_prompt = VERIFY_PROMPT.replace("{extracted_summary}", extract_result).replace("{all_lines}", all_text).replace("{labels}", labels_str)
-        verify_result = _call_api_simple(api_base, api_key, api_model, verify_prompt)
+        verify_prompt = VERIFY_PROMPT.replace("{extracted_summary}", extract_result).replace("{all_lines}", filtered_text).replace("{labels}", labels_str)
+        if is_local_fallback:
+            verify_result = _call_ollama_raw(verify_prompt)
+        else:
+            verify_result = _call_api_simple(api_base, api_key, api_model, verify_prompt)
 
         now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        mode_label = "本地 Ollama (两阶段)" if is_local_fallback else f"API ({api_model})"
         final = verify_result if not verify_result.startswith('[错误]') else extract_result
         report = f"""## 关键要素提取报告
 
 - 处理时间：{now}
 - 选中标签：{labels_str}
 - 匹配行数：{len(filtered)} 条
-- 模式：API ({api_model})
+- 模式：{mode_label}
 
 ---
 
@@ -724,6 +765,43 @@ def _call_api_simple(api_base: str, api_key: str, api_model: str, prompt: str) -
         return f"[错误] {exc}"
 
 
+def _call_ollama_raw(prompt: str) -> str:
+    try:
+        resp = requests.post(
+            f"{OLLAMA_API_URL.rstrip('/')}/api/generate",
+            headers={"Content-Type": "application/json"},
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.3}},
+            timeout=600,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "")
+    except Exception as exc:
+        logger.error("Ollama call failed: %s", exc)
+        return f"[错误] {exc}"
+
+
+def _call_dify_extract(filtered_lines: str, labels: str) -> str:
+    """调用 Dify 关键要素提取工作流"""
+    try:
+        headers = {"Authorization": f"Bearer {DIFY_EXTRACT_API_KEY}", "Content-Type": "application/json"}
+        payload = {
+            "inputs": {
+                "filtered_lines": filtered_lines,
+                "labels": labels,
+            },
+            "response_mode": "blocking",
+            "user": "extract-bridge",
+        }
+        resp = requests.post(f"{DIFY_API_URL}/workflows/run", headers=headers, json=payload, timeout=600)
+        resp.raise_for_status()
+        data = resp.json()
+        outputs = data.get("data", {}).get("outputs", {})
+        return outputs.get("extraction_report", outputs.get("text", ""))
+    except Exception as exc:
+        logger.exception("Dify extract workflow failed")
+        return f"[错误] {exc}"
+
+
 @app.post("/api/extract/batch")
 @app.post("/api/extract/extract")
 def extract_run():
@@ -731,6 +809,7 @@ def extract_run():
     files = request.files.getlist("files")
     labels_str = (request.form.get("labels") or "").strip()
     labels = [l.strip() for l in labels_str.split(",") if l.strip()] if labels_str else []
+    llm_mode = (request.form.get("llm_mode") or "local").strip()
     api_base = (request.form.get("api_base") or "").strip()
     api_key = (request.form.get("api_key") or "").strip()
     api_model = (request.form.get("api_model") or "qwen-plus").strip()
@@ -756,20 +835,11 @@ def extract_run():
     task_id = str(uuid.uuid4())
     threading.Thread(
         target=_run_extract_task,
-        args=(task_id, all_lines, labels, api_base, api_key, api_model),
+        args=(task_id, all_lines, labels, llm_mode, api_base, api_key, api_model),
         daemon=True,
     ).start()
 
     return jsonify({"task_id": task_id, "total_lines": len(all_lines)})
-
-    results = info.get("results", [])
-    threading.Thread(
-        target=_run_extract_task,
-        args=(task_id, [], labels, results, api_base, api_key, api_model),
-        daemon=True,
-    ).start()
-
-    return jsonify({"status": "started"})
 
 
 @app.get("/api/extract/progress/<task_id>")

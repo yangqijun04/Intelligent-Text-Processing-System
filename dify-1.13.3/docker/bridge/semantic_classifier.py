@@ -210,6 +210,8 @@ class BatchClassifier:
         api_base: str = "",
         api_key: str = "",
         api_model: str = "qwen-plus",
+        ollama_url: str = "http://ollama:11434",
+        ollama_model: str = "qwen3:8b",
     ):
         self.dify_api_url = dify_api_url
         self.dify_api_key = dify_api_key
@@ -218,6 +220,8 @@ class BatchClassifier:
         self.api_base = api_base.rstrip("/") if api_base else ""
         self.api_key = api_key
         self.api_model = api_model
+        self.ollama_url = ollama_url.rstrip("/") if ollama_url else "http://ollama:11434"
+        self.ollama_model = ollama_model or "qwen3:8b"
         all_keywords: list[str] = []
         self._kw_to_category: dict[str, str] = {}
         for cat, kws in keyword_categories.items():
@@ -431,17 +435,39 @@ class BatchClassifier:
         if self.llm_mode == "api" and self.api_base and self.api_key:
             return self._call_openai_noise(text, noise_score, kw_hits)
 
-        # Dify/本地模式：算法规则判断
-        if not kw_hits and noise_score > 0.3:
-            return {"is_noise": True, "confidence": round(noise_score, 3), "reason": "无关键词+高噪声分"}
-        if not kw_hits and noise_score > 0.15:
-            return {"is_noise": True, "confidence": round(noise_score + 0.1, 3), "reason": "无关键词命中"}
-        # 有关键词命中，但数量少：不直接判军事，返回低置信度交给后续裁决
-        if len(kw_hits) <= 2 and kw_hits:
-            return {"is_noise": False, "confidence": 0.55, "reason": "关键词少-不确定"}
-        if kw_hits and noise_score <= 0.2:
-            return {"is_noise": False, "confidence": 0.9, "reason": "多关键词+低噪声"}
-        return {"is_noise": False, "confidence": 0.6, "reason": "不确定-偏向军事"}
+        prompt = NOISE_DETECT_PROMPT.replace("{text}", text).replace(
+            "{noise_score}", str(round(noise_score, 3))
+        ).replace("{keyword_hits}", ", ".join(kw_hits[:10]) if kw_hits else "无")
+        result = self._call_ollama(prompt)
+        return {
+            "is_noise": result.get("is_noise", False),
+            "confidence": result.get("confidence", 0.0),
+            "reason": result.get("reason", ""),
+        }
+
+    def _call_ollama(self, prompt: str) -> dict:
+        """调用本地 Ollama API，解析 JSON 返回"""
+        try:
+            resp = requests.post(
+                f"{self.ollama_url}/api/generate",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": self.ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3},
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            content = resp.json().get("response", "")
+            m = re.search(r'\{[\s\S]*\}', content)
+            if m:
+                return json.loads(m.group())
+            return {"label": "解析失败", "confidence": 0.0, "evidence": [content[:100]]}
+        except Exception as exc:
+            logger.error("Ollama API error: %s", exc)
+            return {"label": "分类失败", "confidence": 0.0, "evidence": [str(exc)[:100]]}
 
     def _call_openai_military(self, text: str) -> dict:
         """调用 OpenAI 兼容 API 进行军事分类（纠错+8分类）"""
