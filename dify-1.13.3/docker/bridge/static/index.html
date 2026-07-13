@@ -1478,18 +1478,51 @@ return m[c]||'badge-muted';
 }
 function renderClassifyTable(results){
 const show=results.slice(-30);
-const h=`<table class="data-table"><thead><tr><th>#</th><th>原文</th><th>分类</th><th>置信度</th><th>证据</th></tr></thead><tbody>`;
+const CATS=['指令','情报','态势','火力','补给','通信','敌情','计划'];
+const h=`<table class="data-table"><thead><tr><th>#</th><th>原文</th><th>分类</th><th>置信度</th><th>证据</th><th>纠正</th></tr></thead><tbody>`;
 const rows=show.map(r=>{
 let tag=catBadge(r.label||'');
 let ccl='';const c=parseFloat(r.confidence)||0;
 if(c>=0.8)ccl='color:var(--success)';else if(c>=0.5)ccl='color:var(--warning)';else ccl='color:var(--destructive)';
 const ev=(r.evidence||[]).slice(0,2).join(', ');
-return`<tr><td>${r.line_no||''}</td><td title="${escapeHtml(r.original||'')}">${escapeHtml((r.original||'').substring(0,40))}</td><td><span class="badge ${tag}">${escapeHtml(r.label||'')}</span></td><td style="font-weight:700;${ccl}">${r.confidence}</td><td class="text-xs text-muted" title="${escapeHtml(ev)}">${escapeHtml(ev.substring(0,30))}</td></tr>`;
+const isConflict=r.status==='conflict';
+const corrCell=isConflict
+  ?`<select id="corr_sel_${r.line_no}" class="input" style="width:70px;font-size:10px;padding:2px 4px;">${CATS.map(c=>`<option value="${c}" ${r.kw_label===c?'selected':''}>${c}</option>`).join('')}</select> <button class="btn btn-primary btn-sm" style="padding:2px 5px;font-size:10px;" onclick="correctClassify(${r.line_no},'${(r.original||'').replace(/'/g,"\\'").substring(0,60)}','${r.kw_label||''}','${r.llm_label||''}')">✓</button>`
+  :'<span class="text-xs text-muted">—</span>';
+return`<tr><td>${r.line_no||''}</td><td title="${escapeHtml(r.original||'')}">${escapeHtml((r.original||'').substring(0,40))}</td><td><span class="badge ${tag}">${escapeHtml(r.label||'')}</span></td><td style="font-weight:700;${ccl}">${r.confidence}</td><td class="text-xs text-muted" title="${escapeHtml(ev)}">${escapeHtml(ev.substring(0,30))}</td><td>${corrCell}</td></tr>`;
 }).join('');
-document.getElementById('classifyResultTable').innerHTML=h+rows+'</tbody></table>'+(results.length>30?`<div class="text-xs text-muted" style="text-align:center;padding:8px;">显示最近30条，共${results.length}条</div>`:'');
+var correctedCount=(results.filter(r=>r._corrected)).length;
+document.getElementById('classifyResultTable').innerHTML=h+rows+'</tbody></table>'+(results.length>30?`<div class="text-xs text-muted" style="text-align:center;padding:8px;">显示最近30条，共${results.length}条${correctedCount?'，已纠正'+correctedCount+'条':''}</div>`:'');
 }
 function downloadClassifyReport(){if(!currentClassifyTaskId)return;window.open(API_BASE+'/api/classify/download/'+currentClassifyTaskId,'_blank')}
 function downloadPreprocessedTxt(){if(!currentClassifyTaskId)return;window.open(API_BASE+'/api/classify/preprocessed/'+currentClassifyTaskId,'_blank')}
+async function correctClassify(lineNo,originalText,kwLabel,llmLabel){
+  const sel=document.getElementById('corr_sel_'+lineNo);
+  if(!sel){alert('找不到纠正控件');return}
+  const correctLabel=sel.value;
+  if(!confirm(`确认将第 ${lineNo} 行纠正为「${correctLabel}」？`))return;
+  try{
+    await fetch(API_BASE+'/api/classify/correct',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({line_no:lineNo,original_text:originalText,correct_label:correctLabel,kw_label:kwLabel,llm_label:llmLabel,task_id:currentClassifyTaskId||''})
+    });
+    // 就地更新该行显示
+    const tr=sel.closest('tr');
+    if(tr){
+      const tdLabel=tr.querySelectorAll('td')[2];
+      const tag=catBadge(correctLabel);
+      tdLabel.innerHTML=`<span class="badge ${tag}">${escapeHtml(correctLabel)}</span>`;
+      tr.querySelectorAll('td')[5].innerHTML='<span class="text-xs" style="color:var(--success);font-weight:600;">✓ 已纠正</span>';
+      tr.style.background='hsl(152 76% 40% / 0.04)';
+    }
+    // 更新 results 数据
+    if(classifyResultsData){
+      const r=classifyResultsData.find(x=>x.line_no===lineNo);
+      if(r){r.label=correctLabel;r.status='verified';r.confidence=1.0;r._corrected=true;}
+      renderClassifyStats(classifyResultsData);
+    }
+  }catch(e){alert('纠正提交失败');}
+}
 function resetClassifyBtn(){const btn=document.getElementById('classifyLaunchBtn'),icon=document.getElementById('classifyLaunchIcon');btn.style.display='block';btn.disabled=!1;document.getElementById('classifyLaunchText').innerText='启动分类';icon.setAttribute('data-lucide','play');icon.classList.remove('loading-spin');document.getElementById('classifyStopBtn').style.display='none';setStep(1);lucide.createIcons()}
 async function stopBatchClassify(){if(!currentClassifyTaskId)return;document.getElementById('progressText').innerText='正在停止...';document.getElementById('classifyStopBtn').disabled=!0;try{await fetch(API_BASE+'/api/classify/cancel/'+currentClassifyTaskId,{method:'POST'})}catch(e){}pollClassifyProgress(currentClassifyTaskId)}
 function escapeHtml(str){if(!str)return'';return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -1556,7 +1589,11 @@ async function startExtract(){
   const cfg=_getExtractApiConfig();fd.append('api_base',cfg.api_base);fd.append('api_key',cfg.api_key);fd.append('api_model',cfg.api_model);
   try{const res=await fetch(API_BASE+'/api/extract/extract',{method:'POST',body:fd});const data=await res.json();
   if(data.error){alert(data.error);btn.disabled=!1;btn.innerText='开始提取';return}
-  extractTaskId=data.task_id;pollExtractProgress();}catch(e){alert('提取失败');btn.disabled=!1;btn.innerText='开始提取'}
+  extractTaskId=data.task_id;
+  extractFile=null;
+  document.getElementById('extractFileList').innerHTML='';
+  document.getElementById('extractPlaceholder').style.display='block';
+  pollExtractProgress();}catch(e){alert('提取失败');btn.disabled=!1;btn.innerText='开始提取'}
 }
 function pollExtractProgress(){
   if(extractPollTimer)clearInterval(extractPollTimer);

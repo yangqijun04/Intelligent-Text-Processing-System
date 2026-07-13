@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -237,6 +238,26 @@ class BatchClassifier:
 
     def cancel(self, task_id: str) -> None:
         self._cancelled_tasks.add(task_id)
+
+    @staticmethod
+    def _load_correction_examples(limit: int = 10) -> str:
+        """从 corrections.jsonl 加载人工纠正记录作为 few-shot"""
+        corrections_file = os.path.join(os.path.dirname(__file__), "corrections.jsonl")
+        try:
+            with open(corrections_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            corrections = [json.loads(l) for l in lines[-limit:] if l.strip()]
+        except (FileNotFoundError, json.JSONDecodeError):
+            return ""
+        if not corrections:
+            return ""
+        parts = ["【人工纠正记录 — 请注意：以下为已确认的正确分类，遇到相似文本时优先参考】"]
+        for c in corrections:
+            parts.append(
+                f"- 原文: \"{c['original_text'][:60]}\" → 正确: {c['correct_label']}"
+                f"（LLM曾误判{c.get('llm_label','?')}）"
+            )
+        return "\n".join(parts)
 
     # 战场通信类别标签
     CATEGORY_LABELS: dict[str, str] = {
@@ -522,12 +543,15 @@ class BatchClassifier:
                 if filtered:
                     cat_map[cat] = filtered
             categories_json = json.dumps(cat_map, ensure_ascii=False)
+            # 加载人工纠正记录作为 few-shot 示例
+            correction_examples = self._load_correction_examples()
             headers = {"Authorization": f"Bearer {self.dify_api_key}", "Content-Type": "application/json"}
             payload = {
                 "inputs": {
                     "original_text": text,
                     "keywords": ", ".join(self.keywords[:40]),
                     "keyword_categories": categories_json,
+                    "correction_examples": correction_examples,
                 },
                 "response_mode": "blocking",
                 "user": "battlefield-classifier",

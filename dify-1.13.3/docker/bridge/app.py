@@ -636,6 +636,75 @@ def _generate_report_simple(results: list[dict], model_info: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# 纠正反馈闭环
+# ---------------------------------------------------------------------------
+_CORRECTIONS_FILE = os.path.join(os.path.dirname(__file__), "corrections.jsonl")
+
+
+def _load_corrections(limit: int = 10) -> list[dict]:
+    try:
+        with open(_CORRECTIONS_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        return [json.loads(l) for l in lines[-limit:] if l.strip()]
+    except FileNotFoundError:
+        return []
+
+
+def _save_correction(entry: dict) -> None:
+    with open(_CORRECTIONS_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _build_correction_examples(limit: int = 10) -> str:
+    corrections = _load_corrections(limit)
+    if not corrections:
+        return ""
+    lines = ["\n\n【人工纠正记录（最近10条）注意：以下为已纠正确认的分类结果，遇到相似文本时优先参考这些人为判断】"]
+    for c in corrections[-10:]:
+        lines.append(f"- 原文: \"{c['original_text'][:60]}\" → 正确分类: {c['correct_label']}（LLM曾误判为{c.get('llm_label','?')}）")
+    return "\n".join(lines)
+
+
+@app.post("/api/classify/correct")
+def classify_correct():
+    """提交人工纠正结果"""
+    data = request.get_json(force=True, silent=True) or {}
+    for k in ("original_text", "correct_label", "line_no"):
+        if k not in data:
+            return jsonify({"error": f"缺少参数: {k}"}), 400
+    entry = {
+        "original_text": data["original_text"],
+        "correct_label": data["correct_label"],
+        "kw_label": data.get("kw_label", ""),
+        "llm_label": data.get("llm_label", ""),
+        "line_no": data["line_no"],
+        "task_id": data.get("task_id", ""),
+        "corrected_at": _now_iso(),
+    }
+    _save_correction(entry)
+    with _batch_lock:
+        task_id = data.get("task_id", "")
+        if task_id and task_id in _batch_tasks:
+            results = _batch_tasks[task_id].get("results", [])
+            for r in results:
+                if r.get("line_no") == data["line_no"]:
+                    r["label"] = data["correct_label"]
+                    r["status"] = "verified"
+                    r["confidence"] = 1.0
+                    r["evidence"] = [f"人工纠正: {data.get('kw_label','?')}→{data['correct_label']}"]
+                    break
+    logger.info("Correction saved: line %s → %s", data["line_no"], data["correct_label"])
+    return jsonify({"status": "success"})
+
+
+@app.get("/api/classify/corrections")
+def classify_corrections():
+    """获取纠正记录"""
+    limit = request.args.get("limit", 10, type=int)
+    return jsonify({"items": _load_corrections(limit)})
+
+
+# ---------------------------------------------------------------------------
 # 关键要素提取
 # ---------------------------------------------------------------------------
 _extract_tasks: dict[str, dict] = {}
