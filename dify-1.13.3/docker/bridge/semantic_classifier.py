@@ -515,11 +515,19 @@ class BatchClassifier:
     def _call_dify_classify(self, text: str) -> dict:
         """调用Dify workflow进行军事分类（纠错+分类）"""
         try:
+            # 构建分类词典 JSON（每类取前 5 个核心关键词）
+            cat_map = {}
+            for cat, kws in self.keyword_categories.items():
+                filtered = [kw for kw in kws if kw in self.keywords[:40]][:5]
+                if filtered:
+                    cat_map[cat] = filtered
+            categories_json = json.dumps(cat_map, ensure_ascii=False)
             headers = {"Authorization": f"Bearer {self.dify_api_key}", "Content-Type": "application/json"}
             payload = {
                 "inputs": {
                     "original_text": text,
                     "keywords": ", ".join(self.keywords[:40]),
+                    "keyword_categories": categories_json,
                 },
                 "response_mode": "blocking",
                 "user": "battlefield-classifier",
