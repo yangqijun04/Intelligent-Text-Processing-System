@@ -11,3 +11,7 @@ dify-1.13.3/docker/.env
 # 一键部署压缩包
 images.tar
 dify-1.13.3.tar.gz
+
+# 运行时数据
+dify-1.13.3/docker/bridge/records.db
+dify-1.13.3/docker/bridge/records.db-journal

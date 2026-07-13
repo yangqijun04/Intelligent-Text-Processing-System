@@ -636,6 +636,12 @@ select.input { cursor: pointer; }
         <i data-lucide="brain-circuit"></i> 智能文本分析
       </div>
     </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">历史</div>
+      <div class="sidebar-item" data-page="history" onclick="switchPage('history')">
+        <i data-lucide="clock-3"></i> 历史记录
+      </div>
+    </div>
   </nav>
 
   <div class="sidebar-footer">
@@ -1229,6 +1235,59 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
+  <!-- ═══ PAGE: 历史记录 ═══ -->
+  <div class="page" id="page-history">
+    <div class="page-header">
+      <div class="page-header-icon">
+        <i data-lucide="clock-3" style="width:20px;height:20px;color:var(--primary);"></i>
+      </div>
+      <div>
+        <h2>历史记录</h2>
+        <p>查看所有处理任务的历史记录</p>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="flex-between" style="flex-shrink:0;gap:12px;">
+      <div class="flex-center gap-2" id="historyTabs">
+        <button class="btn btn-outline btn-sm active" onclick="filterHistory('')">全部</button>
+        <button class="btn btn-outline btn-sm" onclick="filterHistory('classify')">🔍 分类</button>
+        <button class="btn btn-outline btn-sm" onclick="filterHistory('extract')">📋 提取</button>
+        <button class="btn btn-outline btn-sm" onclick="filterHistory('analyze')">🧠 分析</button>
+      </div>
+      <div class="flex-center gap-2">
+        <input class="input" id="historySearch" type="text" placeholder="搜索任务名称或摘要..." style="width:240px;font-size:12px;" oninput="debounceSearch()">
+        <span class="text-xs text-muted" id="historyStats">共 0 条记录</span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+      <div class="card-body no-padding" style="flex:1;overflow:auto;">
+        <table class="data-table" id="historyTable">
+          <thead><tr>
+            <th style="width:55px;">模块</th>
+            <th>任务名称</th>
+            <th style="width:55px;">状态</th>
+            <th>摘要</th>
+            <th style="width:110px;">时间</th>
+            <th style="width:60px;">操作</th>
+          </tr></thead>
+          <tbody id="historyTbody">
+            <tr><td colspan="6" style="text-align:center;padding:60px 0;">
+              <i data-lucide="inbox" style="width:36px;height:36px;opacity:0.2;"></i>
+              <p class="text-sm text-muted" style="margin-top:8px;">暂无历史记录，运行一次任务后自动存档</p>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flex-between" style="padding:10px 14px;border-top:1px solid var(--border);">
+        <span class="text-xs text-muted" id="historyPageInfo"></span>
+        <div class="flex-center gap-2" id="historyPagination"></div>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ====== Source Modal ====== -->
@@ -1293,7 +1352,9 @@ function switchPage(name) {
     enterTarget();
   }
   if (name === 'home') { if (historyAutoRefreshTimer) { clearInterval(historyAutoRefreshTimer); historyAutoRefreshTimer = null; } }
-  else if (name === 'analyze') { loadHistory(); startHistoryAutoRefresh(); } else { if (historyAutoRefreshTimer) { clearInterval(historyAutoRefreshTimer); historyAutoRefreshTimer = null; } }
+  else if (name === 'analyze') { loadHistory(); startHistoryAutoRefresh(); }
+  else if (name === 'history') { loadHistoryPage(); }
+  else { if (historyAutoRefreshTimer) { clearInterval(historyAutoRefreshTimer); historyAutoRefreshTimer = null; } }
   lucide.createIcons();
 }
 
@@ -1611,6 +1672,68 @@ function pollExtractProgress(){
 }
 function downloadExtractReport(){if(!extractTaskId)return;window.open(API_BASE+'/api/extract/download/'+extractTaskId,'_blank')}
 document.addEventListener('DOMContentLoaded',function(){initExtractLabelBtns();onExtractLLMModeChange()});
+
+// ── 历史记录页面 ──
+let historyPage=0,historyModule='',historySearch='',historyTimer=null;
+const MODULE_ICONS={analyze:'🧠',classify:'🔍',extract:'📋'};
+const MODULE_NAMES={analyze:'分析',classify:'分类',extract:'提取'};
+function debounceSearch(){
+  if(historyTimer)clearTimeout(historyTimer);
+  historyTimer=setTimeout(()=>{historySearch=document.getElementById('historySearch').value.trim();historyPage=0;loadHistoryPage();},300);
+}
+function filterHistory(module){
+  historyModule=module;historyPage=0;
+  document.querySelectorAll('#historyTabs .btn').forEach(b=>b.classList.remove('active'));
+  if(module==='')document.querySelector('#historyTabs .btn').classList.add('active');
+  else[...document.querySelectorAll('#historyTabs .btn')].forEach(b=>{if(b.textContent.includes(MODULE_NAMES[module]))b.classList.add('active');});
+  loadHistoryPage();
+}
+async function loadHistoryPage(){
+  const limit=20,offset=historyPage*limit;
+  let url=API_BASE+'/api/history?limit='+limit+'&offset='+offset;
+  if(historyModule)url+='&module='+historyModule;
+  if(historySearch)url+='&search='+encodeURIComponent(historySearch);
+  try{
+    const res=await fetch(url);const data=await res.json();
+    const items=data.items||[],stats=data.stats||{},total=stats[historyModule||'total']||0;
+    document.getElementById('historyStats').innerText='共 '+(historySearch?'匹配':total)+' 条记录';
+    const tbody=document.getElementById('historyTbody');
+    if(!items.length){tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:60px 0;"><i data-lucide="inbox" style="width:36px;height:36px;opacity:0.2;"></i><p class="text-sm text-muted" style="margin-top:8px;">'+(historySearch?'无匹配记录':'暂无历史记录')+'</p></td></tr>';lucide.createIcons();}
+    else tbody.innerHTML=items.map(r=>{
+      const statusBadge=r.status==='completed'?'<span class="badge badge-success" title="完成">✅</span>':r.status==='failed'?'<span class="badge badge-destructive" title="失败">❌</span>':r.status==='processing'?'<span class="badge badge-warning" title="处理中">⏳</span>':r.status==='cancelled'?'<span class="badge badge-muted" title="终止">⛔</span>':'<span class="badge badge-muted">'+escapeHtml(r.status||'')+'</span>';
+      const mod=r.module||'';
+      const name=escapeHtml((r.folder_name||'未命名').substring(0,30));
+      const summary=(r.instruction||r.result||'').substring(0,50);
+      const time=(r.created_at||'').replace('T',' ').substring(0,16);
+      return '<tr><td style="text-align:center;">'+(MODULE_ICONS[mod]||'')+'</td><td title="'+escapeHtml(r.folder_name||'')+'">'+name+'</td><td>'+statusBadge+'</td><td class="text-xs text-muted" title="'+escapeHtml(summary)+'">'+escapeHtml(summary)+'</td><td class="text-xs text-muted">'+time+'</td><td><div class="flex-center gap-1"><button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px;" onclick="viewHistoryDetail(\''+r.task_id+'\')">查看</button><button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px;color:var(--destructive);" onclick="deleteHistoryRecord(\''+r.task_id+'\')">删除</button></div></td></tr>';
+    }).join('');
+    document.getElementById('historyPageInfo').innerText='第 '+(historyPage+1)+' 页 / 共 '+Math.ceil(total/limit)+' 页';
+    renderHistoryPagination(total,limit);
+    lucide.createIcons();
+  }catch(e){console.error('loadHistoryPage',e)}
+}
+function renderHistoryPagination(total,limit){
+  const totalPages=Math.ceil(total/limit);
+  let h='';
+  if(historyPage>0)h+='<button class="btn btn-outline btn-sm" onclick="historyPage--;loadHistoryPage()">上一页</button>';
+  h+='<span class="text-xs text-muted">'+Math.min((historyPage+1)*limit,total)+'/'+total+'</span>';
+  if(historyPage<totalPages-1)h+='<button class="btn btn-outline btn-sm" onclick="historyPage++;loadHistoryPage()">下一页</button>';
+  document.getElementById('historyPagination').innerHTML=h;
+}
+async function viewHistoryDetail(taskId){
+  try{
+    const res=await fetch(API_BASE+'/task_status/'+taskId);
+    const data=await res.json();
+    if(!data||data.status==='not_found'){alert('记录不存在');return}
+    const body=data.result||data.report||'（无内容）';
+    const title=data.folder_name||'任务详情';
+    openSourceModal(title,body,0,0);
+  }catch(e){alert('加载失败')}
+}
+async function deleteHistoryRecord(taskId){
+  if(!confirm('确定删除此记录？'))return;
+  try{await fetch(API_BASE+'/tasks/'+taskId,{method:'DELETE'});loadHistoryPage()}catch(e){alert('删除失败')}
+}
 
 </script>
 

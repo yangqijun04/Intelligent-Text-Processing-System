@@ -11,6 +11,7 @@ import requests
 from flask import Flask, jsonify, redirect, request, send_from_directory
 from flask import Response as FlaskResponse
 
+import db
 from preprocessing import clean_text, estimate_asr_noise_level, split_text_to_lines
 from semantic_classifier import BatchClassifier, KeywordMatcher
 from semantic_classifier import EXTRACT_PROMPT, VERIFY_PROMPT, CLASSIFY_PROMPT as _CPT
@@ -158,6 +159,12 @@ def _run_workflow(task_id: str, file_ids: list[str], instruction: str, rag_switc
                 "finished_at": _now_iso(),
                 "workflow_run_id": workflow_run_id,
             }
+        final_status = "completed" if status == "succeeded" and not error else "failed"
+        db.save_analyze_record(task_id, folder_name, instruction, len(file_ids),
+                               [], "local", "", rag_switch == "true",
+                               final_status, result_text if final_status == "completed" else "",
+                               str(error) if error else "",
+                               _tasks[task_id]["created_at"], _tasks[task_id]["finished_at"])
         logger.info("task %s: completed (status=%s)", task_id, status)
 
     except Exception as exc:
@@ -173,6 +180,10 @@ def _run_workflow(task_id: str, file_ids: list[str], instruction: str, rag_switc
                 "finished_at": _now_iso(),
                 "workflow_run_id": "",
             }
+        db.save_analyze_record(task_id, folder_name, instruction,
+                               len(file_ids), [], "local", "",
+                               rag_switch == "true", "failed", "", str(exc),
+                               _tasks[task_id]["created_at"], _tasks[task_id]["finished_at"])
 
 
 def _run_workflow_api(task_id: str, files: list, instruction: str, folder_name: str,
@@ -240,6 +251,10 @@ def _run_workflow_api(task_id: str, files: list, instruction: str, folder_name: 
                 "finished_at": _now_iso(),
                 "workflow_run_id": "api-mode",
             }
+        db.save_analyze_record(task_id, folder_name, instruction, len(files),
+                               [f.filename for f in files], "api", api_model,
+                               False, "completed", result_text, "",
+                               _tasks[task_id]["created_at"], _tasks[task_id]["finished_at"])
         logger.info("task %s: API completed (%d chars)", task_id, len(result_text))
 
     except Exception as exc:
@@ -255,6 +270,10 @@ def _run_workflow_api(task_id: str, files: list, instruction: str, folder_name: 
                 "finished_at": _now_iso(),
                 "workflow_run_id": "",
             }
+        db.save_analyze_record(task_id, folder_name, instruction,
+                               len(files), [f.filename for f in files],
+                               "api", api_model, False, "failed", "", str(exc),
+                               _tasks[task_id]["created_at"], _tasks[task_id]["finished_at"])
 
 
 # ---------------------------------------------------------------------------
@@ -350,9 +369,22 @@ def task_status(task_id: str):
     """Return task status and result."""
     with _lock:
         t = _tasks.get(task_id)
-    if not t:
-        return jsonify({"status": "not_found", "error": "任务不存在"}), 404
-    return jsonify(t)
+    if t:
+        return jsonify(t)
+    # 回退：查数据库
+    rec = db.get_record(task_id)
+    if rec:
+        return jsonify({
+            "task_id": rec.get("task_id"),
+            "folder_name": rec.get("folder_name", ""),
+            "status": rec.get("status", ""),
+            "result": rec.get("result", rec.get("report", "")),
+            "error": rec.get("error", ""),
+            "created_at": str(rec.get("created_at", "")),
+            "finished_at": str(rec.get("finished_at", "")),
+            "workflow_run_id": "",
+        })
+    return jsonify({"status": "not_found", "error": "任务不存在"}), 404
 
 
 @app.get("/tasks_recent")
@@ -362,6 +394,23 @@ def tasks_recent():
     with _lock:
         items = list(_tasks.values())
     items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    # 合并数据库记录（排除内存中已有的完成/失败任务）
+    mem_ids = {i.get("task_id") for i in items if i.get("status") in ("completed", "failed", "cancelled")}
+    db_records = db.get_recent_records(limit)
+    for rec in db_records:
+        tid = rec.get("task_id", "")
+        if tid and tid not in mem_ids:
+            items.append({
+                "task_id": tid,
+                "folder_name": rec.get("folder_name", ""),
+                "status": rec.get("status", ""),
+                "result": "",
+                "error": "",
+                "created_at": rec.get("created_at", ""),
+                "finished_at": rec.get("finished_at", ""),
+                "workflow_run_id": "",
+            })
+    items.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
     return jsonify({"items": items[:limit]})
 
 
@@ -383,8 +432,30 @@ def delete_task(task_id: str):
     with _lock:
         if task_id in _tasks:
             del _tasks[task_id]
+            db.delete_record(task_id)
             return jsonify({"status": "success"})
-    return jsonify({"status": "error", "message": "任务不存在"}), 404
+    db.delete_record(task_id)
+    if db.get_record(task_id):
+        return jsonify({"status": "error", "message": "删除失败"}), 500
+    return jsonify({"status": "success"})
+
+
+@app.get("/api/history")
+def history_list():
+    """分页查询历史记录"""
+    module = request.args.get("module", "").strip()
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    search = request.args.get("search", "").strip()
+    items = db.get_history(module, limit, offset, search)
+    stats = db.get_history_stats()
+    return jsonify({"items": items, "stats": stats, "limit": limit, "offset": offset})
+
+
+@app.get("/api/history/stats")
+def history_stats():
+    """历史记录统计"""
+    return jsonify(db.get_history_stats())
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -427,17 +498,35 @@ def _run_batch_classify(task_id: str, lines: list[str], keyword_categories: dict
             if _batch_tasks.get(task_id, {}).get("cancelled"):
                 _batch_tasks[task_id]["status"] = "cancelled"
                 _batch_tasks[task_id]["results"] = results
+                db.save_classify_record(task_id, folder_name, original_filename,
+                                        len(lines), llm_mode, api_model, "cancelled",
+                                        {}, results, "用户取消", _now_iso(), _now_iso())
                 logger.info("Batch classify %s: cancelled, %d lines saved", task_id, len(results))
             else:
                 _batch_tasks[task_id]["status"] = "completed"
                 _batch_tasks[task_id]["results"] = results
+                stats = {}
+                for r in results:
+                    lbl = r.get("label", "未知")
+                    status = r.get("status", "verified")
+                    if status == "conflict":
+                        stats["冲突"] = stats.get("冲突", 0) + 1
+                    else:
+                        stats[lbl] = stats.get(lbl, 0) + 1
+                created = _now_iso()
+                finished = _now_iso()
+                db.save_classify_record(task_id, folder_name, original_filename,
+                                        len(lines), llm_mode, api_model, "completed",
+                                        stats, results, "", created, finished)
                 logger.info("Batch classify %s: completed, %d lines, %d errors", task_id, len(results), error_count)
 
     except Exception as exc:
         logger.exception("Batch classify %s: failed", task_id)
         with _batch_lock:
             _batch_tasks[task_id] = {"status": "failed", "results": [], "error": str(exc)}
-
+        db.save_classify_record(task_id, folder_name, original_filename,
+                                len(lines), llm_mode, api_model, "failed",
+                                {}, [], str(exc), _now_iso(), _now_iso())
 
 @app.post("/api/classify/batch")
 def classify_batch():
@@ -712,7 +801,8 @@ _extract_lock = threading.Lock()
 
 
 def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str],
-                      llm_mode: str, api_base: str, api_key: str, api_model: str) -> None:
+                      llm_mode: str, api_base: str, api_key: str, api_model: str,
+                      file_name: str = "") -> None:
     """从文本标签解析 → 过滤 → LLM提取 → LLM检验。"""
     try:
         with _extract_lock:
@@ -736,6 +826,9 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
         if not filtered:
             with _extract_lock:
                 _extract_tasks[task_id] = {"status": "failed", "error": "选中的标签下无匹配文本"}
+            db.save_extract_record(task_id, labels_str, file_name, 0, llm_mode,
+                                   api_model, "failed", "", "选中的标签下无匹配文本",
+                                   _now_iso(), _now_iso())
             return
         filtered_text = "\n".join(f"[行{n}] {t}" for n, t in filtered)
         labels_str = "、".join(selected_labels)
@@ -748,6 +841,9 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
             if wf_result.startswith("[错误]"):
                 with _extract_lock:
                     _extract_tasks[task_id] = {"status": "failed", "error": wf_result}
+                db.save_extract_record(task_id, labels_str, file_name, 0, llm_mode,
+                                       api_model, "failed", "", wf_result,
+                                       _now_iso(), _now_iso())
                 return
             now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             report = f"""## 关键要素提取报告
@@ -764,6 +860,9 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
             with _extract_lock:
                 _extract_tasks[task_id] = {"status": "completed", "report": report,
                                             "extract": wf_result, "verify": ""}
+            db.save_extract_record(task_id, labels_str, file_name, len(filtered),
+                                   llm_mode, "", "completed", report, "",
+                                   _now_iso(), _now_iso())
             logger.info("Extract %s: completed via Dify workflow", task_id)
             return
 
@@ -783,6 +882,9 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
         if extract_result.startswith("[错误]"):
             with _extract_lock:
                 _extract_tasks[task_id] = {"status": "failed", "error": extract_result}
+            db.save_extract_record(task_id, labels_str, file_name, 0, llm_mode,
+                                   api_model, "failed", "", extract_result,
+                                   _now_iso(), _now_iso())
             return
 
         # 检验
@@ -811,12 +913,18 @@ def _run_extract_task(task_id: str, lines: list[str], selected_labels: list[str]
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "completed", "report": report,
                                         "extract": extract_result, "verify": verify_result}
+        db.save_extract_record(task_id, labels_str, file_name, len(filtered),
+                               llm_mode, api_model, "completed", report, "",
+                               _now_iso(), _now_iso())
         logger.info("Extract %s: completed", task_id)
 
     except Exception as exc:
         logger.exception("Extract %s: failed", task_id)
         with _extract_lock:
             _extract_tasks[task_id] = {"status": "failed", "error": str(exc)}
+        db.save_extract_record(task_id, "", file_name, 0, llm_mode,
+                               api_model, "failed", "", str(exc),
+                               _now_iso(), _now_iso())
 
 
 def _call_api_simple(api_base: str, api_key: str, api_model: str, prompt: str) -> str:
@@ -902,9 +1010,10 @@ def extract_run():
         return jsonify({"error": "文件中未检测到有效文本内容"}), 400
 
     task_id = str(uuid.uuid4())
+    file_name = files[0].filename if files else ""
     threading.Thread(
         target=_run_extract_task,
-        args=(task_id, all_lines, labels, llm_mode, api_base, api_key, api_model),
+        args=(task_id, all_lines, labels, llm_mode, api_base, api_key, api_model, file_name),
         daemon=True,
     ).start()
 
@@ -951,5 +1060,6 @@ def extract_active():
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    db.init_db()
     logger.info("Bridge starting on port %d, Dify API: %s", PORT, DIFY_API_URL)
     app.run(host="0.0.0.0", port=PORT, debug=False)
